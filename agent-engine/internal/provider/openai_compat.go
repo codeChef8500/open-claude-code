@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
+	"time"
 
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/wall-ai/agent-engine/internal/engine"
@@ -38,8 +40,26 @@ func (p *OpenAICompatProvider) CallModel(ctx context.Context, params CallParams)
 	ch := make(chan *engine.StreamEvent, 64)
 	go func() {
 		defer close(ch)
-		if err := p.stream(ctx, params, ch); err != nil {
-			ch <- &engine.StreamEvent{Type: engine.EventError, Error: err.Error()}
+		var lastErr error
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			if attempt > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(retryBaseMs*(1<<uint(attempt-1))) * time.Millisecond):
+				}
+			}
+			lastErr = p.stream(ctx, params, ch)
+			if lastErr == nil {
+				return
+			}
+			errStr := lastErr.Error()
+			if !strings.Contains(errStr, "429") && !strings.Contains(errStr, "529") && !strings.Contains(errStr, "overloaded") && !strings.Contains(errStr, "rate limit") {
+				break
+			}
+		}
+		if lastErr != nil {
+			ch <- &engine.StreamEvent{Type: engine.EventError, Error: lastErr.Error()}
 		}
 	}()
 	return ch, nil
@@ -101,8 +121,9 @@ func (p *OpenAICompatProvider) stream(ctx context.Context, params CallParams, ch
 	}
 	defer stream.Close()
 
-	// Track tool call accumulation
+	// Track tool call accumulation across deltas (index → accumulator).
 	toolCallBuf := make(map[int]*toolCallAccum)
+	var finalFinishReason openai.FinishReason
 
 	for {
 		resp, err := stream.Recv()
@@ -115,14 +136,15 @@ func (p *OpenAICompatProvider) stream(ctx context.Context, params CallParams, ch
 		if len(resp.Choices) == 0 {
 			continue
 		}
-		delta := resp.Choices[0].Delta
+		choice := resp.Choices[0]
+		delta := choice.Delta
 
 		// Text delta
 		if delta.Content != "" {
 			ch <- &engine.StreamEvent{Type: engine.EventTextDelta, Text: delta.Content}
 		}
 
-		// Tool call deltas
+		// Accumulate tool call fragments
 		for _, tc := range delta.ToolCalls {
 			idx := tc.Index
 			if idx == nil {
@@ -141,22 +163,34 @@ func (p *OpenAICompatProvider) stream(ctx context.Context, params CallParams, ch
 			toolCallBuf[i].ArgsJSON += tc.Function.Arguments
 		}
 
-		// Finish reason
-		if resp.Choices[0].FinishReason == openai.FinishReasonToolCalls {
-			for _, accum := range toolCallBuf {
-				var input interface{}
+		if choice.FinishReason != "" {
+			finalFinishReason = choice.FinishReason
+		}
+	}
+
+	// Emit all accumulated tool calls at stream end (covers both tool_calls and stop reasons).
+	if len(toolCallBuf) > 0 && (finalFinishReason == openai.FinishReasonToolCalls || finalFinishReason == openai.FinishReasonStop || finalFinishReason == "") {
+		for i := 0; i < len(toolCallBuf); i++ {
+			accum, ok := toolCallBuf[i]
+			if !ok {
+				continue
+			}
+			var input interface{}
+			if accum.ArgsJSON != "" {
 				_ = json.Unmarshal([]byte(accum.ArgsJSON), &input)
-				ch <- &engine.StreamEvent{
-					Type:      engine.EventToolUse,
-					ToolID:    accum.ID,
-					ToolName:  accum.Name,
-					ToolInput: input,
-				}
+			}
+			if input == nil {
+				input = map[string]interface{}{}
+			}
+			ch <- &engine.StreamEvent{
+				Type:      engine.EventToolUse,
+				ToolID:    accum.ID,
+				ToolName:  accum.Name,
+				ToolInput: input,
 			}
 		}
 	}
 
-	// Usage stats not easily available in streaming mode for OpenAI compat.
 	ch <- &engine.StreamEvent{Type: engine.EventDone}
 	return nil
 }

@@ -13,15 +13,25 @@ type SessionWriter interface {
 	AppendMessage(sessionID string, msg *Message) error
 }
 
-// SystemPromptBuilder constructs the full multi-layer system prompt string
-// given the current engine state.  Implemented by the prompt package; wired
-// at SDK construction time.
-type SystemPromptBuilder interface {
-	// Build returns the combined system prompt text.
-	Build(opts SystemPromptOptions) string
+// SystemPromptResult holds the built system prompt in both flat-string and
+// segmented forms.  Providers that support prompt caching use Parts; others
+// fall back to Text.
+type SystemPromptResult struct {
+	// Text is the full concatenated prompt (always populated).
+	Text string
+	// Parts holds the ordered cache-aware segments (may be nil).
+	Parts []SystemPromptPart
 }
 
-// SystemPromptOptions carries the inputs needed by SystemPromptBuilder.Build.
+// SystemPromptBuilder constructs the full multi-layer system prompt given the
+// current engine state.  Implemented by the prompt package; wired at SDK
+// construction time.
+type SystemPromptBuilder interface {
+	// BuildParts returns both the combined text and per-segment parts.
+	BuildParts(opts SystemPromptOptions) SystemPromptResult
+}
+
+// SystemPromptOptions carries the inputs needed by SystemPromptBuilder.BuildParts.
 type SystemPromptOptions struct {
 	Tools              []Tool
 	UseContext         *UseContext

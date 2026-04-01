@@ -1,6 +1,7 @@
 package webfetch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
+	"github.com/ledongthuc/pdf"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
 )
@@ -107,13 +109,20 @@ func (t *WebFetchTool) Call(ctx context.Context, input json.RawMessage, uctx *to
 		contentType := resp.Header.Get("Content-Type")
 		var output string
 
-		// PDF detection — raw bytes returned when Content-Type is PDF.
+		// PDF detection — extract text using ledongthuc/pdf.
 		if strings.Contains(contentType, "application/pdf") || strings.HasSuffix(strings.ToLower(in.URL), ".pdf") {
-			// TODO: add full text extraction once ledongthuc/pdf is in go.sum.
-			ch <- &engine.ContentBlock{
-				Type: engine.ContentTypeText,
-				Text: fmt.Sprintf("[PDF document — %d bytes; text extraction not yet available]", len(body)),
+			text, err := extractPDFText(body)
+			if err != nil || strings.TrimSpace(text) == "" {
+				ch <- &engine.ContentBlock{
+					Type: engine.ContentTypeText,
+					Text: fmt.Sprintf("[PDF document — %d bytes; could not extract text: %v]", len(body), err),
+				}
+				return
 			}
+			if len(text) > maxOutputChars {
+				text = text[:maxOutputChars] + "\n[... truncated ...]"
+			}
+			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: text}
 			return
 		}
 
@@ -151,6 +160,28 @@ func (t *WebFetchTool) Call(ctx context.Context, input json.RawMessage, uctx *to
 
 func errBlock(msg string) *engine.ContentBlock {
 	return &engine.ContentBlock{Type: engine.ContentTypeText, Text: msg, IsError: true}
+}
+
+// extractPDFText extracts plain text from a PDF byte slice using ledongthuc/pdf.
+func extractPDFText(data []byte) (string, error) {
+	r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", fmt.Errorf("pdf reader: %w", err)
+	}
+	var sb strings.Builder
+	for i := 1; i <= r.NumPage(); i++ {
+		page := r.Page(i)
+		if page.V.IsNull() {
+			continue
+		}
+		content, err := page.GetPlainText(nil)
+		if err != nil {
+			continue
+		}
+		sb.WriteString(content)
+		sb.WriteString("\n")
+	}
+	return sb.String(), nil
 }
 
 func stripHTML(s string) string {

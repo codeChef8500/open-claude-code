@@ -16,10 +16,10 @@ const maxTurns = 100
 
 // loopState tracks the internal state of a single query loop execution.
 type loopState struct {
-	messages    []*Message
-	systemPrompt string
-	stopReason  string
-	turnCount   int
+	messages     []*Message
+	promptResult SystemPromptResult
+	stopReason   string
+	turnCount    int
 }
 
 // runQueryLoop is the core for-select state machine that drives the
@@ -37,7 +37,7 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 
 	// ── 2. Build 6-layer system prompt ────────────────────────────────────
 	ls := &loopState{
-		systemPrompt: buildSystemPromptIntegrated(e, memoryContent),
+		promptResult: buildSystemPromptIntegrated(e, memoryContent),
 	}
 
 	// ── 3. Seed from prior session history ───────────────────────────────
@@ -68,14 +68,30 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			}
 		}
 
+		// ── Token-warning check before calling the model ──────────────────
+		tokenEst := EstimateTokens(ls.messages)
+		if e.cfg.MaxTokens > 0 {
+			ratio := float64(tokenEst) / float64(e.cfg.MaxTokens)
+			switch {
+			case ratio >= 0.95:
+				emitSystemMessage(out, "🚫 Context window is nearly full. Triggering compaction…")
+				if compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, e.cfg.Model); err == nil {
+					ls.messages = compacted
+				}
+			case ratio >= 0.85:
+				emitSystemMessage(out, "⚠️ Context window is getting full. Consider using /compact.")
+			}
+		}
+
 		callParams := CallParams{
-			Model:          e.cfg.Model,
-			MaxTokens:      e.cfg.MaxTokens,
-			ThinkingBudget: e.cfg.ThinkingBudget,
-			SystemPrompt:   ls.systemPrompt,
-			Messages:       ls.messages,
-			Tools:          e.toolDefs(),
-			UsePromptCache: true,
+			Model:             e.cfg.Model,
+			MaxTokens:         e.cfg.MaxTokens,
+			ThinkingBudget:    e.cfg.ThinkingBudget,
+			SystemPrompt:      ls.promptResult.Text,
+			SystemPromptParts: ls.promptResult.Parts,
+			Messages:          ls.messages,
+			Tools:             e.toolDefs(),
+			UsePromptCache:    true,
 		}
 
 		eventCh, err := e.caller.CallModel(ctx, callParams)
@@ -129,9 +145,9 @@ func shouldCompact(messages []*Message, maxTokens int) bool {
 
 // buildSystemPromptIntegrated uses the injected SystemPromptBuilder when
 // available, falling back to the lightweight stub.
-func buildSystemPromptIntegrated(e *Engine, memoryContent string) string {
+func buildSystemPromptIntegrated(e *Engine, memoryContent string) SystemPromptResult {
 	if e.promptBuilder != nil {
-		return e.promptBuilder.Build(SystemPromptOptions{
+		return e.promptBuilder.BuildParts(SystemPromptOptions{
 			Tools:              e.enabledTools(),
 			UseContext:         e.useContext(),
 			WorkDir:            e.cfg.WorkDir,
@@ -140,7 +156,7 @@ func buildSystemPromptIntegrated(e *Engine, memoryContent string) string {
 			AppendSystemPrompt: e.cfg.AppendSystemPrompt,
 		})
 	}
-	return buildSystemPrompt(e)
+	return SystemPromptResult{Text: buildSystemPrompt(e)}
 }
 
 // drainProviderStream reads events from the provider channel, forwards

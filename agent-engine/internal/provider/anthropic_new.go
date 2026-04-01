@@ -5,10 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/wall-ai/agent-engine/internal/engine"
+)
+
+const (
+	maxRetries    = 3
+	retryBaseMs   = 500
 )
 
 // AnthropicProvider implements Provider (engine.ModelCaller) via the official
@@ -38,8 +44,26 @@ func (p *AnthropicProvider) CallModel(ctx context.Context, params CallParams) (<
 	ch := make(chan *engine.StreamEvent, 64)
 	go func() {
 		defer close(ch)
-		if err := p.call(ctx, params, ch); err != nil {
-			ch <- &engine.StreamEvent{Type: engine.EventError, Error: err.Error()}
+		var lastErr error
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			if attempt > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(retryBaseMs*(1<<uint(attempt-1))) * time.Millisecond):
+				}
+			}
+			lastErr = p.call(ctx, params, ch)
+			if lastErr == nil {
+				return
+			}
+			errStr := lastErr.Error()
+			if !strings.Contains(errStr, "429") && !strings.Contains(errStr, "529") && !strings.Contains(errStr, "overloaded") {
+				break
+			}
+		}
+		if lastErr != nil {
+			ch <- &engine.StreamEvent{Type: engine.EventError, Error: lastErr.Error()}
 		}
 	}()
 	return ch, nil
@@ -78,13 +102,32 @@ func (p *AnthropicProvider) call(ctx context.Context, params CallParams, ch chan
 		MaxTokens: int64(maxTokens),
 		Messages:  apiMessages,
 	}
-	if params.SystemPrompt != "" {
+
+	// Build system prompt: prefer multi-segment parts for cache-aware injection;
+	// fall back to single-block SystemPrompt when parts are not provided.
+	// Anthropic supports up to 4 cache_control blocks; we cache Layer 1 (base prompt)
+	// and Layer 2 (tool descriptions) — the two most stable segments.
+	if len(params.SystemPromptParts) > 0 {
+		var sysBlocks []anthropic.TextBlockParam
+		for _, part := range params.SystemPromptParts {
+			if part.Content == "" {
+				continue
+			}
+			block := anthropic.TextBlockParam{Text: part.Content}
+			if params.UsePromptCache && !params.SkipCacheWrite && part.CacheHint {
+				block.CacheControl = anthropic.CacheControlEphemeralParam{}
+			}
+			sysBlocks = append(sysBlocks, block)
+		}
+		req.System = sysBlocks
+	} else if params.SystemPrompt != "" {
 		block := anthropic.TextBlockParam{Text: params.SystemPrompt}
 		if params.UsePromptCache && !params.SkipCacheWrite {
 			block.CacheControl = anthropic.CacheControlEphemeralParam{}
 		}
 		req.System = []anthropic.TextBlockParam{block}
 	}
+
 	if len(apiTools) > 0 {
 		req.Tools = apiTools
 	}

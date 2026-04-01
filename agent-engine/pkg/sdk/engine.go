@@ -5,6 +5,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/memory"
@@ -96,7 +97,9 @@ func New(opts ...Option) (*Engine, error) {
 		return nil, fmt.Errorf("sdk.New: provider: %w", err)
 	}
 
-	tools := defaultTools()
+	// Build AgentTool with a real sub-agent runner.
+	subRunner := buildSubAgentRunner(o.cfg, prov)
+	tools := defaultToolsWith(subRunner)
 
 	inner, err := engine.New(o.cfg, prov, tools)
 	if err != nil {
@@ -115,6 +118,61 @@ func New(opts ...Option) (*Engine, error) {
 	return &Engine{inner: inner}, nil
 }
 
+// buildSubAgentRunner returns a SubAgentRunner that spins up a child engine
+// with the same provider and a fresh session, runs the task to completion, and
+// returns the concatenated assistant text.
+func buildSubAgentRunner(cfg engine.EngineConfig, prov engine.ModelCaller) agentool.SubAgentRunner {
+	return func(ctx context.Context, agentID, task string, input agentool.Input, uctx *tool.UseContext) (string, error) {
+		childCfg := cfg
+		childCfg.SessionID = agentID
+		if uctx != nil && uctx.WorkDir != "" {
+			childCfg.WorkDir = uctx.WorkDir
+		}
+		if input.SystemPrompt != "" {
+			childCfg.CustomSystemPrompt = input.SystemPrompt
+		}
+		maxTurns := input.MaxTurns
+		if maxTurns <= 0 {
+			maxTurns = 50
+		}
+		childCfg.MaxTokens = cfg.MaxTokens
+
+		subTools := defaultToolsWith(nil) // sub-agents cannot themselves spawn sub-agents (avoid infinite recursion)
+		if len(input.AllowedTools) > 0 {
+			allowed := make(map[string]bool, len(input.AllowedTools))
+			for _, n := range input.AllowedTools {
+				allowed[n] = true
+			}
+			var filtered []tool.Tool
+			for _, t := range subTools {
+				if allowed[t.Name()] {
+					filtered = append(filtered, t)
+				}
+			}
+			subTools = filtered
+		}
+
+		child, err := engine.New(childCfg, prov, subTools)
+		if err != nil {
+			return "", fmt.Errorf("sub-agent engine: %w", err)
+		}
+		child.SetMemoryLoader(memory.NewAdapter())
+		child.SetPromptBuilder(prompt.NewAdapter())
+
+		eventCh := child.SubmitMessage(ctx, engine.QueryParams{Text: task})
+		var sb strings.Builder
+		for ev := range eventCh {
+			switch ev.Type {
+			case engine.EventTextDelta:
+				sb.WriteString(ev.Text)
+			case engine.EventError:
+				return "", fmt.Errorf("sub-agent error: %s", ev.Error)
+			}
+		}
+		return sb.String(), nil
+	}
+}
+
 // SessionID returns the unique session ID.
 func (e *Engine) SessionID() string { return e.inner.SessionID() }
 
@@ -131,8 +189,8 @@ func (e *Engine) SubmitMessageWithImages(ctx context.Context, text string, image
 // Close releases engine resources.
 func (e *Engine) Close() error { return e.inner.Close() }
 
-// defaultTools returns the standard set of tools registered for every engine.
-func defaultTools() []tool.Tool {
+// defaultToolsWith returns the standard set of tools, using the given sub-agent runner.
+func defaultToolsWith(runner agentool.SubAgentRunner) []tool.Tool {
 	return []tool.Tool{
 		// Core file + shell tools
 		bash.New(),
@@ -154,7 +212,7 @@ func defaultTools() []tool.Tool {
 		notebookedit.New(),
 		// Agent coordination
 		brief.New(),
-		agentool.New(nil), // sub-agent runner wired at engine level
+		agentool.New(runner),
 		// Plan mode
 		planmode.NewEnterPlanMode(),
 		planmode.NewExitPlanMode(),

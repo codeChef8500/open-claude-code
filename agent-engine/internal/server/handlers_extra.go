@@ -4,37 +4,62 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/wall-ai/agent-engine/internal/command"
+	"github.com/wall-ai/agent-engine/internal/session"
 )
 
 // ─── GET /api/v1/sessions ─────────────────────────────────────────────────────
 
 func handleListSessions(w http.ResponseWriter, r *http.Request) {
-	enginesMu.RLock()
-	ids := make([]string, 0, len(engines))
-	for id := range engines {
-		ids = append(ids, id)
+	storage := session.NewStorage(session.DefaultStorageDir())
+	metas, err := storage.ListSessions()
+	if err != nil {
+		// Fallback: return in-memory session IDs only.
+		enginesMu.RLock()
+		ids := make([]string, 0, len(engines))
+		for id := range engines {
+			ids = append(ids, id)
+		}
+		enginesMu.RUnlock()
+		writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": ids})
+		return
 	}
-	enginesMu.RUnlock()
-	writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": ids})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": metas})
 }
 
 // ─── GET /api/v1/sessions/{id}/export ─────────────────────────────────────────
 
 func handleExportSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	enginesMu.RLock()
-	_, ok := engines[id]
-	enginesMu.RUnlock()
-	if !ok {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("session %q not found", id))
-		return
+
+	storage := session.NewStorage(session.DefaultStorageDir())
+	format := r.URL.Query().Get("format") // "markdown" | "json" (default: markdown)
+
+	switch format {
+	case "json":
+		entries, err := storage.ReadTranscript(id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if entries == nil {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("session %q not found", id))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"session_id": id, "entries": entries})
+	default: // markdown
+		md, err := storage.ExportMarkdown(id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(md))
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"session_id": id,
-		"message":    "export via session storage — use session.Storage.ExportMarkdown(id)",
-	})
 }
 
 // ─── GET /api/v1/tools ────────────────────────────────────────────────────────
@@ -91,10 +116,31 @@ func handleRunCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if req.Command == "" {
+		writeError(w, http.StatusBadRequest, "command must not be empty")
+		return
+	}
+
+	// Strip leading slash.
+	cmdStr := strings.TrimPrefix(req.Command, "/")
+	parts := strings.Fields(cmdStr)
+	if len(parts) == 0 {
+		writeError(w, http.StatusBadRequest, "empty command")
+		return
+	}
+	name := parts[0]
+	args := parts[1:]
+
+	ectx := &command.ExecContext{SessionID: id}
+	result, err := command.Execute(r.Context(), name, args, ectx)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"session_id": id,
 		"command":    req.Command,
-		"result":     "command dispatched (use streaming session endpoint for output)",
+		"result":     result,
 	})
 }
 

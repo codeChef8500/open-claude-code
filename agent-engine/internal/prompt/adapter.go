@@ -13,8 +13,9 @@ type Adapter struct{}
 // NewAdapter creates a prompt.Adapter.
 func NewAdapter() *Adapter { return &Adapter{} }
 
-// Build assembles the 6-layer system prompt from the provided options.
-func (a *Adapter) Build(opts engine.SystemPromptOptions) string {
+// BuildParts assembles the 6-layer system prompt and returns both the flat text
+// and the ordered cache-aware segments.
+func (a *Adapter) BuildParts(opts engine.SystemPromptOptions) engine.SystemPromptResult {
 	// Convert engine.Tool slice to tool.Tool slice (same underlying type via alias).
 	tools := make([]tool.Tool, len(opts.Tools))
 	for i, t := range opts.Tools {
@@ -38,5 +39,18 @@ func (a *Adapter) Build(opts engine.SystemPromptOptions) string {
 		CustomSystemPrompt: opts.CustomSystemPrompt,
 		AppendSystemPrompt: opts.AppendSystemPrompt,
 	})
-	return built.Text
+
+	// Map prompt parts to engine.SystemPromptPart slices.
+	parts := make([]engine.SystemPromptPart, 0, len(built.Parts))
+	for _, p := range built.Parts {
+		parts = append(parts, engine.SystemPromptPart{
+			Content:   p.Content,
+			CacheHint: p.CacheHint,
+		})
+	}
+
+	return engine.SystemPromptResult{
+		Text:  built.Text,
+		Parts: parts,
+	}
 }

@@ -60,6 +60,30 @@ func (e *Executor) Execute(ctx context.Context, raw string, ectx *ExecContext) (
 	}
 }
 
+// Execute is a package-level convenience function that dispatches a command
+// by name (without leading slash) using the default registry.
+func Execute(ctx context.Context, name string, args []string, ectx *ExecContext) (string, error) {
+	cmd := Default().Find(name)
+	if cmd == nil {
+		return "", fmt.Errorf("unknown command: /%s (type /help for a list)", name)
+	}
+	if !cmd.IsEnabled(ectx) {
+		return "", fmt.Errorf("command /%s is not available in the current context", name)
+	}
+	switch c := cmd.(type) {
+	case LocalCommand:
+		return c.Execute(ctx, args, ectx)
+	case PromptCommand:
+		content, err := c.PromptContent(args, ectx)
+		if err != nil {
+			return "", err
+		}
+		return "__prompt__:" + content, nil
+	default:
+		return "", fmt.Errorf("command /%s has unknown type", name)
+	}
+}
+
 // IsCommand reports whether raw looks like a slash command.
 func IsCommand(raw string) bool {
 	return strings.HasPrefix(strings.TrimSpace(raw), "/")

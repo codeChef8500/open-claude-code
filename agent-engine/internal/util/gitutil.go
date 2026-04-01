@@ -3,6 +3,8 @@ package util
 import (
 	"context"
 	"strings"
+
+	gogit "github.com/go-git/go-git/v5"
 )
 
 // GitDiff holds the parsed result of a git diff operation.
@@ -73,23 +75,35 @@ func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// GitGetRemoteURL returns the remote URL for the given remote name ("origin" by default).
+// GitGetRemoteURL returns the remote URL for the given remote name.
+// Uses go-git directly; falls back to shell exec if the directory is not a
+// git repository according to the library.
 func GitGetRemoteURL(ctx context.Context, remote, cwd string) (string, error) {
 	if remote == "" {
 		remote = "origin"
 	}
-	result, err := Exec(ctx, "git remote get-url "+remote, &ExecOptions{CWD: cwd})
-	if err != nil {
-		return "", err
+	repo, err := gogit.PlainOpenWithOptions(cwd, &gogit.PlainOpenOptions{DetectDotGit: true})
+	if err == nil {
+		rem, err := repo.Remote(remote)
+		if err != nil {
+			return "", err
+		}
+		cfg := rem.Config()
+		if len(cfg.URLs) > 0 {
+			return cfg.URLs[0], nil
+		}
+		return "", nil
+	}
+	// Fallback to git CLI.
+	result, execErr := Exec(ctx, "git remote get-url "+remote, &ExecOptions{CWD: cwd})
+	if execErr != nil {
+		return "", execErr
 	}
 	return strings.TrimSpace(result.Stdout), nil
 }
 
 // GitIsRepo reports whether cwd is inside a git repository.
-func GitIsRepo(ctx context.Context, cwd string) bool {
-	result, err := Exec(ctx, "git rev-parse --is-inside-work-tree", &ExecOptions{CWD: cwd})
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(result.Stdout) == "true"
+func GitIsRepo(_ context.Context, cwd string) bool {
+	_, err := gogit.PlainOpenWithOptions(cwd, &gogit.PlainOpenOptions{DetectDotGit: true})
+	return err == nil
 }
