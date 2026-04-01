@@ -61,6 +61,9 @@ func New(cfg EngineConfig, prov ModelCaller, tools []Tool) (*Engine, error) {
 // SessionID returns the unique identifier of this session.
 func (e *Engine) SessionID() string { return e.session.SessionID() }
 
+// WorkDir returns the working directory for this engine session.
+func (e *Engine) WorkDir() string { return e.cfg.WorkDir }
+
 // SetMemoryLoader installs a MemoryLoader (e.g. the memory package adapter).
 func (e *Engine) SetMemoryLoader(ml MemoryLoader) { e.memoryLoader = ml }
 

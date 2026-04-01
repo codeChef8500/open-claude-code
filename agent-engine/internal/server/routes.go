@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	agentcoord "github.com/wall-ai/agent-engine/internal/agent"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/util"
 	"github.com/wall-ai/agent-engine/pkg/sdk"
@@ -16,7 +17,17 @@ import (
 var (
 	enginesMu sync.RWMutex
 	engines   = make(map[string]*sdk.Engine)
+
+	coordinatorOnce sync.Once
+	globalCoord     *agentcoord.Coordinator
 )
+
+func getCoordinator() *agentcoord.Coordinator {
+	coordinatorOnce.Do(func() {
+		globalCoord = agentcoord.NewCoordinator(nil, nil)
+	})
+	return globalCoord
+}
 
 func registerRoutes(r *chi.Mux) {
 	r.Get("/health", handleHealth)

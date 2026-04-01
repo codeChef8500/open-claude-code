@@ -162,7 +162,7 @@ func (c *Coordinator) runAgent(ctx context.Context, cfg AgentConfig) AgentResult
 		case engine.EventTextDelta:
 			output += ev.Text
 		case engine.EventError:
-			return AgentResult{AgentID: cfg.AgentID, Error: fmt.Errorf(ev.Error)}
+			return AgentResult{AgentID: cfg.AgentID, Error: fmt.Errorf("%s", ev.Error)}
 		}
 	}
 

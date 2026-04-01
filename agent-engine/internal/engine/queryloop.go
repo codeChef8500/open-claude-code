@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -259,8 +260,18 @@ type pendingToolCall struct {
 	Input json.RawMessage
 }
 
-// executeToolCalls runs all pending tool calls (concurrently where safe)
-// and returns a user message containing all tool results.
+// toolCallResult holds the outcome of a single tool execution.
+type toolCallResult struct {
+	toolUseID string
+	blocks    []*ContentBlock
+	isErr     bool
+	toolName  string
+	denied    bool
+	deniedMsg string
+}
+
+// executeToolCalls runs pending tool calls: concurrent-safe tools are
+// dispatched in parallel; the rest run sequentially in order.
 func executeToolCalls(
 	ctx context.Context,
 	e *Engine,
@@ -273,6 +284,14 @@ func executeToolCalls(
 		Role: RoleUser,
 	}
 
+	// Pre-check permissions and group by concurrency safety.
+	type group struct {
+		tc   *pendingToolCall
+		tool Tool
+	}
+	var concurrent []group
+	var sequential []group
+
 	for _, tc := range calls {
 		t, ok := e.findTool(tc.Name)
 		if !ok {
@@ -284,10 +303,9 @@ func executeToolCalls(
 			})
 			continue
 		}
-
 		uctx := e.useContext()
 
-		// ── Global permission check (policy rules) ────────────────────────
+		// Global permission check.
 		if e.permChecker != nil {
 			verdict, reason := e.permChecker.CheckTool(ctx, tc.Name, tc.Input, e.cfg.WorkDir)
 			if verdict == PermissionDeny {
@@ -302,7 +320,7 @@ func executeToolCalls(
 			}
 		}
 
-		// ── Auto Mode LLM classifier ──────────────────────────────────────
+		// Auto Mode LLM classifier.
 		if e.cfg.AutoMode && e.autoModeClassifier != nil {
 			verdict, reason, err := e.autoModeClassifier.Classify(ctx, tc.Name, tc.Input)
 			if err != nil {
@@ -321,7 +339,7 @@ func executeToolCalls(
 			}
 		}
 
-		// ── Per-tool permission check ─────────────────────────────────────
+		// Per-tool permission check.
 		if err := t.CheckPermissions(ctx, tc.Input, uctx); err != nil {
 			resultMsg.Content = append(resultMsg.Content, &ContentBlock{
 				Type:      ContentTypeToolResult,
@@ -332,44 +350,89 @@ func executeToolCalls(
 			continue
 		}
 
-		// Execute
-		blockCh, err := t.Call(ctx, tc.Input, uctx)
-		if err != nil {
+		g := group{tc: tc, tool: t}
+		if t.IsConcurrencySafe() {
+			concurrent = append(concurrent, g)
+		} else {
+			sequential = append(sequential, g)
+		}
+	}
+
+	// Execute concurrent-safe tools in parallel.
+	if len(concurrent) > 0 {
+		results := make([]toolCallResult, len(concurrent))
+		var wg sync.WaitGroup
+		for i, g := range concurrent {
+			wg.Add(1)
+			go func(idx int, g group) {
+				defer wg.Done()
+				results[idx] = runSingleTool(ctx, g.tc, g.tool, e)
+			}(i, g)
+		}
+		wg.Wait()
+
+		for _, res := range results {
+			out <- &StreamEvent{
+				Type:     EventToolResult,
+				ToolID:   res.toolUseID,
+				ToolName: res.toolName,
+				IsError:  res.isErr,
+			}
 			resultMsg.Content = append(resultMsg.Content, &ContentBlock{
 				Type:      ContentTypeToolResult,
-				ToolUseID: tc.ID,
-				Content:   []*ContentBlock{{Type: ContentTypeText, Text: err.Error()}},
-				IsError:   true,
+				ToolUseID: res.toolUseID,
+				Content:   res.blocks,
+				IsError:   res.isErr,
 			})
-			continue
 		}
+	}
 
-		// Collect all result blocks.
-		var resultBlocks []*ContentBlock
-		isErr := false
-		for b := range blockCh {
-			if b.IsError {
-				isErr = true
-			}
-			resultBlocks = append(resultBlocks, b)
-		}
-
+	// Execute sequential tools one at a time.
+	for _, g := range sequential {
+		res := runSingleTool(ctx, g.tc, g.tool, e)
 		out <- &StreamEvent{
 			Type:     EventToolResult,
-			ToolID:   tc.ID,
-			ToolName: tc.Name,
-			IsError:  isErr,
+			ToolID:   res.toolUseID,
+			ToolName: res.toolName,
+			IsError:  res.isErr,
 		}
-
 		resultMsg.Content = append(resultMsg.Content, &ContentBlock{
 			Type:      ContentTypeToolResult,
-			ToolUseID: tc.ID,
-			Content:   resultBlocks,
-			IsError:   isErr,
+			ToolUseID: res.toolUseID,
+			Content:   res.blocks,
+			IsError:   res.isErr,
 		})
 	}
 
 	return resultMsg, nil
+}
+
+// runSingleTool executes one tool call and collects its result blocks.
+func runSingleTool(ctx context.Context, tc *pendingToolCall, t Tool, e *Engine) toolCallResult {
+	uctx := e.useContext()
+	blockCh, err := t.Call(ctx, tc.Input, uctx)
+	if err != nil {
+		return toolCallResult{
+			toolUseID: tc.ID,
+			toolName:  tc.Name,
+			blocks:    []*ContentBlock{{Type: ContentTypeText, Text: err.Error()}},
+			isErr:     true,
+		}
+	}
+	var blocks []*ContentBlock
+	isErr := false
+	for b := range blockCh {
+		if b.IsError {
+			isErr = true
+		}
+		blocks = append(blocks, b)
+	}
+	return toolCallResult{
+		toolUseID: tc.ID,
+		toolName:  tc.Name,
+		blocks:    blocks,
+		isErr:     isErr,
+	}
 }
 
 // buildSystemPrompt assembles the system prompt from engine config.

@@ -15,6 +15,7 @@ import (
 	"github.com/wall-ai/agent-engine/internal/provider"
 	"github.com/wall-ai/agent-engine/internal/session"
 	"github.com/wall-ai/agent-engine/internal/tool"
+	"github.com/wall-ai/agent-engine/internal/skill"
 	"github.com/wall-ai/agent-engine/internal/tool/agentool"
 	"github.com/wall-ai/agent-engine/internal/tool/askuser"
 	"github.com/wall-ai/agent-engine/internal/tool/bash"
@@ -100,6 +101,11 @@ func New(opts ...Option) (*Engine, error) {
 	// Build AgentTool with a real sub-agent runner.
 	subRunner := buildSubAgentRunner(o.cfg, prov)
 	tools := defaultToolsWith(subRunner)
+
+	// Append discovered skills as tools.
+	for _, s := range skill.DiscoverAll(o.cfg.WorkDir) {
+		tools = append(tools, skill.NewSkillTool(s))
+	}
 
 	inner, err := engine.New(o.cfg, prov, tools)
 	if err != nil {
@@ -188,6 +194,15 @@ func (e *Engine) SubmitMessageWithImages(ctx context.Context, text string, image
 
 // Close releases engine resources.
 func (e *Engine) Close() error { return e.inner.Close() }
+
+// SkillNames returns names of all discovered skills for this engine.
+func (e *Engine) SkillNames() []string {
+	var names []string
+	for _, s := range skill.DiscoverAll(e.inner.WorkDir()) {
+		names = append(names, s.Meta.Name)
+	}
+	return names
+}
 
 // defaultToolsWith returns the standard set of tools, using the given sub-agent runner.
 func defaultToolsWith(runner agentool.SubAgentRunner) []tool.Tool {

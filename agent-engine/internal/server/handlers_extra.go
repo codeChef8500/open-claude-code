@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/wall-ai/agent-engine/internal/agent"
 	"github.com/wall-ai/agent-engine/internal/command"
 	"github.com/wall-ai/agent-engine/internal/session"
+	"github.com/wall-ai/agent-engine/internal/skill"
 )
 
 // ─── GET /api/v1/sessions ─────────────────────────────────────────────────────
@@ -154,12 +156,12 @@ type spawnAgentRequest struct {
 }
 
 func handleSpawnAgent(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	sid := chi.URLParam(r, "id")
 	enginesMu.RLock()
-	_, ok := engines[id]
+	_, ok := engines[sid]
 	enginesMu.RUnlock()
 	if !ok {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("session %q not found", id))
+		writeError(w, http.StatusNotFound, fmt.Sprintf("session %q not found", sid))
 		return
 	}
 
@@ -172,49 +174,77 @@ func handleSpawnAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "task is required")
 		return
 	}
+	workDir := req.WorkDir
+	if workDir == "" {
+		workDir = "."
+	}
 
+	c := getCoordinator()
+	agentID, err := c.SpawnAgent(r.Context(), agent.AgentConfig{
+		Task:         req.Task,
+		WorkDir:      workDir,
+		MaxTurns:     req.MaxTurns,
+		AllowedTools: req.AllowedTools,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"session_id": id,
-		"status":     "agent spawn requested — integrate with agent.Coordinator for full support",
-		"task":       req.Task,
+		"session_id": sid,
+		"agent_id":   agentID,
+		"status":     "running",
 	})
 }
 
 // ─── GET /api/v1/sessions/{id}/agents ─────────────────────────────────────────
 
 func handleListAgents(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	enginesMu.RLock()
-	_, ok := engines[id]
-	enginesMu.RUnlock()
-	if !ok {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("session %q not found", id))
-		return
-	}
+	sid := chi.URLParam(r, "id")
+	c := getCoordinator()
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"session_id": id,
-		"agents":     []interface{}{},
+		"session_id": sid,
+		"agents":     c.ActiveAgents(),
 	})
 }
 
 // ─── DELETE /api/v1/sessions/{id}/agents/{agentId} ────────────────────────────
 
 func handleCancelAgent(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	sid := chi.URLParam(r, "id")
 	agentID := chi.URLParam(r, "agentId")
+	getCoordinator().CancelAgent(agentID)
 	writeJSON(w, http.StatusOK, map[string]string{
-		"session_id": id,
+		"session_id": sid,
 		"agent_id":   agentID,
-		"status":     "cancel requested",
+		"status":     "cancelled",
 	})
 }
 
 // ─── GET /api/v1/skills ───────────────────────────────────────────────────────
 
 func handleListSkills(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"skills": []interface{}{},
-	})
+	workDir := r.URL.Query().Get("work_dir")
+	if workDir == "" {
+		workDir = "."
+	}
+	skills := skill.DiscoverAll(workDir)
+	type skillInfo struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Version     string   `json:"version,omitempty"`
+		Tags        []string `json:"tags,omitempty"`
+	}
+	result := make([]skillInfo, 0, len(skills))
+	for _, s := range skills {
+		result = append(result, skillInfo{
+			Name:        s.Meta.Name,
+			Description: s.Meta.Description,
+			Version:     s.Meta.Version,
+			Tags:        s.Meta.Tags,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"skills": result})
 }
 
 // ─── Plugin handlers ──────────────────────────────────────────────────────────

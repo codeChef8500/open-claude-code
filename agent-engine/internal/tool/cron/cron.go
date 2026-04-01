@@ -10,6 +10,7 @@ import (
 	robfigcron "github.com/robfig/cron/v3"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
+	"github.com/wall-ai/agent-engine/internal/util"
 )
 
 // ScheduledTask is a registered cron job entry.
@@ -114,12 +115,22 @@ func (t *ScheduleCronTool) Call(ctx context.Context, input json.RawMessage, uctx
 			}
 			cmd := in.Command
 			wdir := uctx.WorkDir
+			notify := uctx.SendNotification
 			_, err := sched.c.AddFunc(in.Schedule, func() {
 				runCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 				defer cancel()
-				_ = wdir
-				_ = cmd
-				_ = runCtx
+				res, execErr := util.Exec(runCtx, cmd, &util.ExecOptions{CWD: wdir})
+				if notify != nil {
+					if execErr != nil {
+						notify(fmt.Sprintf("[cron %s] error: %s", id, execErr.Error()))
+					} else {
+						out := res.Stdout
+						if out == "" {
+							out = "(no output)"
+						}
+						notify(fmt.Sprintf("[cron %s] %s", id, out))
+					}
+				}
 			})
 			if err != nil {
 				ch <- errBlock("invalid cron schedule: " + err.Error())
