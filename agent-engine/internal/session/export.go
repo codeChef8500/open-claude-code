@@ -40,8 +40,8 @@ func (s *Storage) ExportMarkdown(sessionID string) (string, error) {
 			sb.WriteString("\n\n---\n\n")
 
 		case EntryTypeMessage:
-			msg, ok := e.Payload.(*engine.Message)
-			if !ok {
+			msg, err := payloadToMessage(e.Payload)
+			if err != nil {
 				continue
 			}
 			role := strings.ToUpper(string(msg.Role))

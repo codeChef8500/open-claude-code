@@ -1,6 +1,8 @@
 package session
 
 import (
+	"encoding/json"
+
 	"github.com/wall-ai/agent-engine/internal/engine"
 )
 
@@ -38,10 +40,26 @@ func (s *Storage) Resume(sessionID string) ([]*engine.Message, string, error) {
 		if e.Type != EntryTypeMessage {
 			continue
 		}
-		if msg, ok := e.Payload.(*engine.Message); ok {
-			messages = append(messages, msg)
+		msg, err := payloadToMessage(e.Payload)
+		if err != nil {
+			continue
 		}
+		messages = append(messages, msg)
 	}
 
 	return messages, summaryText, nil
+}
+
+// payloadToMessage re-marshals an interface{} payload (decoded from JSON as
+// map[string]interface{}) back into an *engine.Message.
+func payloadToMessage(payload interface{}) (*engine.Message, error) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	var msg engine.Message
+	if err := json.Unmarshal(b, &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
 }

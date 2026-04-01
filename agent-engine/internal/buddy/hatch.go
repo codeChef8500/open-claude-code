@@ -100,5 +100,19 @@ func defaultName(b CompanionBones) string {
 		"Flux", "Glim", "Haze", "Iris", "Jest",
 		"Koda", "Lune", "Myst", "Nova", "Onyx"}
 	idx := int(rng.next()) % len(prefixes)
-	return prefixes[idx] + strings.Title(string(b.Species[:1])) + string(b.Species[1:3])
+	s := string(b.Species)
+	suffix := capitalise(s[:1]) + s[1:3]
+	return prefixes[idx] + suffix
+}
+
+// capitalise upper-cases the first byte of a pure-ASCII string.
+func capitalise(s string) string {
+	if s == "" {
+		return s
+	}
+	b := s[0]
+	if b >= 'a' && b <= 'z' {
+		b -= 32
+	}
+	return string(b) + s[1:]
 }
