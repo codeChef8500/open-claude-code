@@ -40,13 +40,15 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		systemPrompt: buildSystemPromptIntegrated(e, memoryContent),
 	}
 
-	// ── 3. Seed from prior session history if resuming ────────────────────
-	// (session.resume wires prior messages before SubmitMessage is called)
+	// ── 3. Seed from prior session history ───────────────────────────────
+	e.historyMu.Lock()
+	ls.messages = append(ls.messages, e.history...)
+	e.historyMu.Unlock()
 
 	// ── 4. Persist user message ───────────────────────────────────────────
 	userMsg := buildUserMessage(params)
 	ls.messages = append(ls.messages, userMsg)
-	persistMessage(e, userMsg)
+	e.persistMessage(userMsg)
 
 	for ls.turnCount < maxTurns {
 		ls.turnCount++
@@ -82,7 +84,7 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		}
 
 		// Consume the event stream from the provider.
-		assistantMsg, toolCalls, stop, err := drainProviderStream(ctx, eventCh, out, e)
+		assistantMsg, toolCalls, err := drainProviderStream(ctx, eventCh, out, e)
 		if err != nil {
 			return err
 		}
@@ -90,10 +92,14 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		// ── 6. Persist and append assistant turn ──────────────────────────
 		if assistantMsg != nil && len(assistantMsg.Content) > 0 {
 			ls.messages = append(ls.messages, assistantMsg)
-			persistMessage(e, assistantMsg)
+			e.persistMessage(assistantMsg)
 		}
 
-		if stop || len(toolCalls) == 0 {
+		// Execute pending tool calls first, even if the provider sent EventDone.
+		// OpenAI-compatible providers always emit EventDone (setting stop=true)
+		// regardless of whether tool calls are pending, so we must not use `stop`
+		// to gate tool execution.
+		if len(toolCalls) == 0 {
 			out <- &StreamEvent{Type: EventDone, SessionID: e.cfg.SessionID}
 			return nil
 		}
@@ -104,7 +110,7 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			return err
 		}
 		ls.messages = append(ls.messages, toolResultMsg)
-		persistMessage(e, toolResultMsg)
+		e.persistMessage(toolResultMsg)
 	}
 
 	return fmt.Errorf("exceeded maximum turn limit (%d)", maxTurns)
@@ -120,15 +126,6 @@ func shouldCompact(messages []*Message, maxTokens int) bool {
 	return float64(tokenEst) >= float64(maxTokens)*compactThreshold
 }
 
-// persistMessage writes a message to the session writer if one is configured.
-func persistMessage(e *Engine, msg *Message) {
-	if e.sessionWriter == nil {
-		return
-	}
-	if err := e.sessionWriter.AppendMessage(e.cfg.SessionID, msg); err != nil {
-		slog.Warn("queryloop: session persist failed", slog.Any("err", err))
-	}
-}
 
 // buildSystemPromptIntegrated uses the injected SystemPromptBuilder when
 // available, falling back to the lightweight stub.
@@ -154,7 +151,7 @@ func drainProviderStream(
 	eventCh <-chan *StreamEvent,
 	out chan<- *StreamEvent,
 	e *Engine,
-) (*Message, []*pendingToolCall, bool, error) {
+) (*Message, []*pendingToolCall, error) {
 
 	assistantMsg := &Message{
 		ID:   uuid.New().String(),
@@ -164,15 +161,21 @@ func drainProviderStream(
 	var toolCalls []*pendingToolCall
 	// map toolID -> accumulated input JSON
 	toolInputBuf := make(map[string]*json.RawMessage)
-	stop := false
 
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, nil, false, ctx.Err()
+			return nil, nil, ctx.Err()
 		case ev, ok := <-eventCh:
 			if !ok {
-				return assistantMsg, toolCalls, stop, nil
+				// Flush accumulated tool-input buffers back into each pendingToolCall
+				// so that executeToolCalls receives the complete JSON input.
+				for _, tc := range toolCalls {
+					if buf, exists := toolInputBuf[tc.ID]; exists && buf != nil {
+						tc.Input = *buf
+					}
+				}
+				return assistantMsg, toolCalls, nil
 			}
 			switch ev.Type {
 			case EventTextDelta:
@@ -220,10 +223,11 @@ func drainProviderStream(
 				out <- ev
 
 			case EventError:
-				return nil, nil, false, fmt.Errorf("provider error: %s", ev.Error)
+				return nil, nil, fmt.Errorf("provider error: %s", ev.Error)
 
 			case EventDone:
-				stop = true
+				// EventDone from the provider is a hint that the stream is ending;
+				// the loop exits naturally when the channel closes.
 
 			default:
 				slog.Debug("unknown stream event", slog.String("type", string(ev.Type)))

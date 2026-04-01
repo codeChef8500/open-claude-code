@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,11 @@ type Engine struct {
 	tools    []Tool
 	store    *state.Store
 	session  *state.SessionState
+
+	// historyMu guards history across concurrent SubmitMessage calls.
+	historyMu sync.Mutex
+	// history accumulates all messages across SubmitMessage calls for multi-turn context.
+	history   []*Message
 
 	// Optional integrations — wired at SDK level to avoid import cycles.
 	memoryLoader      MemoryLoader
@@ -60,6 +66,21 @@ func (e *Engine) SetMemoryLoader(ml MemoryLoader) { e.memoryLoader = ml }
 
 // SetSessionWriter installs a SessionWriter (e.g. the session storage adapter).
 func (e *Engine) SetSessionWriter(sw SessionWriter) { e.sessionWriter = sw }
+
+// persistMessage appends a message to the in-memory history and, if a
+// session writer is configured, also writes it to durable storage.
+func (e *Engine) persistMessage(msg *Message) {
+	e.historyMu.Lock()
+	e.history = append(e.history, msg)
+	e.historyMu.Unlock()
+
+	if e.sessionWriter == nil {
+		return
+	}
+	if err := e.sessionWriter.AppendMessage(e.cfg.SessionID, msg); err != nil {
+		slog.Warn("queryloop: session persist failed", slog.Any("err", err))
+	}
+}
 
 // SetPromptBuilder installs a SystemPromptBuilder (e.g. the prompt package adapter).
 func (e *Engine) SetPromptBuilder(pb SystemPromptBuilder) { e.promptBuilder = pb }
