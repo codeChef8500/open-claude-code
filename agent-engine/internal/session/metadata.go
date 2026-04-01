@@ -17,7 +17,7 @@ func (s *Storage) Search(keyword string) ([]*SessionMetadata, error) {
 	kw := strings.ToLower(keyword)
 	var results []*SessionMetadata
 	for _, m := range all {
-		if strings.Contains(strings.ToLower(m.Title), kw) ||
+		if strings.Contains(strings.ToLower(m.Summary), kw) ||
 			strings.Contains(strings.ToLower(m.WorkDir), kw) {
 			results = append(results, m)
 		}
