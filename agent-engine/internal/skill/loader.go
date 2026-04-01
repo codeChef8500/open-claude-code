@@ -15,8 +15,11 @@ type SkillMeta struct {
 	Description string   `yaml:"description"`
 	Version     string   `yaml:"version"`
 	Tags        []string `yaml:"tags"`
-	// Allowed tools this skill may invoke.
+	// AllowedTools restricts which tools this skill may invoke.
 	AllowedTools []string `yaml:"allowed_tools"`
+	// FilePattern is a glob; if set, the skill is only active when at least
+	// one file in the working directory matches (conditional activation).
+	FilePattern string `yaml:"file_pattern"`
 }
 
 // Skill is a loaded, ready-to-use skill.
@@ -58,6 +61,30 @@ func LoadSkillFile(path string) (*Skill, error) {
 		Prompt:   buf.String(),
 		RawMD:    string(rest),
 		FilePath: path,
+	}, nil
+}
+
+// ParseSkillBytes parses a Skill from raw bytes and an optional filename hint.
+func ParseSkillBytes(data []byte, filename string) (*Skill, error) {
+	var meta SkillMeta
+	rest, err := frontmatter.Parse(strings.NewReader(string(data)), &meta)
+	if err != nil {
+		rest = data
+	}
+
+	var buf strings.Builder
+	if err := md.Convert(rest, &buf); err != nil {
+		buf.WriteString(string(rest))
+	}
+
+	if meta.Name == "" && filename != "" {
+		meta.Name = strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	}
+
+	return &Skill{
+		Meta:   meta,
+		Prompt: buf.String(),
+		RawMD:  string(rest),
 	}, nil
 }
 

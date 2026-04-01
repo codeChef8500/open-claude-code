@@ -22,10 +22,42 @@ func registerRoutes(r *chi.Mux) {
 	r.Get("/health", handleHealth)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// Sessions
 		r.Post("/sessions", handleCreateSession)
+		r.Get("/sessions", handleListSessions)
 		r.Get("/sessions/{id}", handleGetSession)
 		r.Post("/sessions/{id}/messages", handleSendMessage)
 		r.Delete("/sessions/{id}", handleDeleteSession)
+		r.Get("/sessions/{id}/export", handleExportSession)
+
+		// Tools
+		r.Get("/tools", handleListTools)
+
+		// Memory
+		r.Get("/sessions/{id}/memory", handleGetMemory)
+
+		// Commands
+		r.Post("/sessions/{id}/commands", handleRunCommand)
+
+		// Agents
+		r.Post("/sessions/{id}/agents", handleSpawnAgent)
+		r.Get("/sessions/{id}/agents", handleListAgents)
+		r.Delete("/sessions/{id}/agents/{agentId}", handleCancelAgent)
+
+		// Skills
+		r.Get("/skills", handleListSkills)
+
+		// Plugins
+		r.Get("/plugins", handleListPlugins)
+		r.Post("/plugins", handleLoadPlugin)
+		r.Delete("/plugins/{name}", handleUnloadPlugin)
+
+		// Buddy
+		r.Get("/buddy", handleGetBuddy)
+
+		// Modes
+		r.Get("/modes", handleGetModes)
+		r.Post("/modes", handleSetMode)
 	})
 }
 
