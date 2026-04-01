@@ -25,6 +25,7 @@ func New(addr string) *Server {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(120 * time.Second))
+	r.Use(withAPIKeyAuth)
 
 	s := &Server{
 		addr:   addr,
@@ -41,6 +42,9 @@ func New(addr string) *Server {
 	registerRoutes(r)
 	return s
 }
+
+// Handler returns the underlying http.Handler for use in tests.
+func (s *Server) Handler() http.Handler { return s.router }
 
 // Start begins accepting connections. Blocks until ctx is cancelled.
 func (s *Server) Start(ctx context.Context) error {

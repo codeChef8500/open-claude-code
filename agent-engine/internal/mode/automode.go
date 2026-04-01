@@ -10,33 +10,6 @@ import (
 	"github.com/wall-ai/agent-engine/internal/provider"
 )
 
-// ClassifierVerdict is the result of the Auto Mode LLM classifier.
-type ClassifierVerdict string
-
-const (
-	VerdictAllow     ClassifierVerdict = "allow"
-	VerdictSoftDeny  ClassifierVerdict = "soft_deny"
-	VerdictDeny      ClassifierVerdict = "deny"
-)
-
-// AutoModeRule is a single rule in the classifier system prompt.
-type AutoModeRule struct {
-	Type        string // "allow" | "soft_deny" | "environment"
-	Description string
-}
-
-// DefaultAutoModeRules contains the built-in rules for Auto Mode.
-var DefaultAutoModeRules = []AutoModeRule{
-	{Type: "allow", Description: "Reading files or directories"},
-	{Type: "allow", Description: "Running tests"},
-	{Type: "allow", Description: "Searching code with grep or glob"},
-	{Type: "allow", Description: "Fetching public web pages"},
-	{Type: "soft_deny", Description: "Deleting files"},
-	{Type: "soft_deny", Description: "Pushing to remote git repositories"},
-	{Type: "soft_deny", Description: "Installing packages system-wide"},
-	{Type: "environment", Description: "The agent operates on the user's local machine"},
-}
-
 // RunYoloClassifier runs the LLM-based Auto Mode permission classifier.
 // It uses a lightweight model (Haiku) as a side query without affecting
 // the main conversation context.

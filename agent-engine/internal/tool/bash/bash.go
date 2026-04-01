@@ -64,9 +64,14 @@ func (t *BashTool) CheckPermissions(ctx context.Context, input json.RawMessage, 
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Errorf("invalid input: %w", err)
 	}
-	// Basic safety: refuse empty commands.
 	if in.Command == "" && !in.Restart {
 		return fmt.Errorf("command must not be empty")
+	}
+	// Shell AST safety check — detects dangerous patterns via syntax tree.
+	if in.Command != "" {
+		if err := checkShellAST(in.Command); err != nil {
+			return fmt.Errorf("shell safety check: %w", err)
+		}
 	}
 	return nil
 }

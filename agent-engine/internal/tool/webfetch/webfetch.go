@@ -107,6 +107,16 @@ func (t *WebFetchTool) Call(ctx context.Context, input json.RawMessage, uctx *to
 		contentType := resp.Header.Get("Content-Type")
 		var output string
 
+		// PDF detection — raw bytes returned when Content-Type is PDF.
+		if strings.Contains(contentType, "application/pdf") || strings.HasSuffix(strings.ToLower(in.URL), ".pdf") {
+			// TODO: add full text extraction once ledongthuc/pdf is in go.sum.
+			ch <- &engine.ContentBlock{
+				Type: engine.ContentTypeText,
+				Text: fmt.Sprintf("[PDF document — %d bytes; text extraction not yet available]", len(body)),
+			}
+			return
+		}
+
 		format := in.Format
 		if format == "" {
 			format = "markdown"

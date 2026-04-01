@@ -9,6 +9,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// compactThreshold is the fraction of MaxTokens at which auto-compact triggers.
+const compactThreshold = 0.80
+
 const maxTurns = 100
 
 // loopState tracks the internal state of a single query loop execution.
@@ -22,20 +25,46 @@ type loopState struct {
 // runQueryLoop is the core for-select state machine that drives the
 // conversation: callModel → dispatch tool calls → continue or stop.
 func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<- *StreamEvent) error {
-	ls := &loopState{
-		systemPrompt: buildSystemPrompt(e),
+	// ── 1. Load CLAUDE.md memory content ──────────────────────────────────
+	var memoryContent string
+	if e.memoryLoader != nil {
+		if mc, err := e.memoryLoader.LoadMemory(e.cfg.WorkDir); err == nil {
+			memoryContent = mc
+		} else {
+			slog.Debug("queryloop: memory load skipped", slog.Any("err", err))
+		}
 	}
 
-	// Seed with any existing session messages (resume case).
-	// For a fresh session this will be empty.
+	// ── 2. Build 6-layer system prompt ────────────────────────────────────
+	ls := &loopState{
+		systemPrompt: buildSystemPromptIntegrated(e, memoryContent),
+	}
 
-	// Add the user message.
+	// ── 3. Seed from prior session history if resuming ────────────────────
+	// (session.resume wires prior messages before SubmitMessage is called)
+
+	// ── 4. Persist user message ───────────────────────────────────────────
 	userMsg := buildUserMessage(params)
 	ls.messages = append(ls.messages, userMsg)
+	persistMessage(e, userMsg)
 
 	for ls.turnCount < maxTurns {
 		ls.turnCount++
 		e.session.IncrTurn()
+
+		// ── 5. Auto-compact at 80% context threshold ──────────────────────
+		if e.cfg.MaxTokens > 0 && shouldCompact(ls.messages, e.cfg.MaxTokens) {
+			slog.Info("queryloop: auto-compact triggered",
+				slog.Int("turn", ls.turnCount),
+				slog.String("session", e.cfg.SessionID))
+			emitSystemMessage(out, "Compacting conversation to free context space…")
+			compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, e.cfg.Model)
+			if err != nil {
+				slog.Warn("queryloop: auto-compact failed", slog.Any("err", err))
+			} else {
+				ls.messages = compacted
+			}
+		}
 
 		callParams := CallParams{
 			Model:          e.cfg.Model,
@@ -58,13 +87,13 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			return err
 		}
 
-		// Append the assistant turn.
+		// ── 6. Persist and append assistant turn ──────────────────────────
 		if assistantMsg != nil && len(assistantMsg.Content) > 0 {
 			ls.messages = append(ls.messages, assistantMsg)
+			persistMessage(e, assistantMsg)
 		}
 
 		if stop || len(toolCalls) == 0 {
-			// No tool calls — we're done.
 			out <- &StreamEvent{Type: EventDone, SessionID: e.cfg.SessionID}
 			return nil
 		}
@@ -75,9 +104,46 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			return err
 		}
 		ls.messages = append(ls.messages, toolResultMsg)
+		persistMessage(e, toolResultMsg)
 	}
 
 	return fmt.Errorf("exceeded maximum turn limit (%d)", maxTurns)
+}
+
+// shouldCompact reports whether the accumulated message tokens exceed the
+// compactThreshold fraction of maxTokens.
+func shouldCompact(messages []*Message, maxTokens int) bool {
+	if maxTokens <= 0 {
+		return false
+	}
+	tokenEst := EstimateTokens(messages)
+	return float64(tokenEst) >= float64(maxTokens)*compactThreshold
+}
+
+// persistMessage writes a message to the session writer if one is configured.
+func persistMessage(e *Engine, msg *Message) {
+	if e.sessionWriter == nil {
+		return
+	}
+	if err := e.sessionWriter.AppendMessage(e.cfg.SessionID, msg); err != nil {
+		slog.Warn("queryloop: session persist failed", slog.Any("err", err))
+	}
+}
+
+// buildSystemPromptIntegrated uses the injected SystemPromptBuilder when
+// available, falling back to the lightweight stub.
+func buildSystemPromptIntegrated(e *Engine, memoryContent string) string {
+	if e.promptBuilder != nil {
+		return e.promptBuilder.Build(SystemPromptOptions{
+			Tools:              e.enabledTools(),
+			UseContext:         e.useContext(),
+			WorkDir:            e.cfg.WorkDir,
+			MemoryContent:      memoryContent,
+			CustomSystemPrompt: e.cfg.CustomSystemPrompt,
+			AppendSystemPrompt: e.cfg.AppendSystemPrompt,
+		})
+	}
+	return buildSystemPrompt(e)
 }
 
 // drainProviderStream reads events from the provider channel, forwards
@@ -201,7 +267,41 @@ func executeToolCalls(
 
 		uctx := e.useContext()
 
-		// Permission check
+		// ── Global permission check (policy rules) ────────────────────────
+		if e.permChecker != nil {
+			verdict, reason := e.permChecker.CheckTool(ctx, tc.Name, tc.Input, e.cfg.WorkDir)
+			if verdict == PermissionDeny {
+				emitSystemMessage(out, fmt.Sprintf("Permission denied for %s: %s", tc.Name, reason))
+				resultMsg.Content = append(resultMsg.Content, &ContentBlock{
+					Type:      ContentTypeToolResult,
+					ToolUseID: tc.ID,
+					Content:   []*ContentBlock{{Type: ContentTypeText, Text: "Permission denied: " + reason}},
+					IsError:   true,
+				})
+				continue
+			}
+		}
+
+		// ── Auto Mode LLM classifier ──────────────────────────────────────
+		if e.cfg.AutoMode && e.autoModeClassifier != nil {
+			verdict, reason, err := e.autoModeClassifier.Classify(ctx, tc.Name, tc.Input)
+			if err != nil {
+				slog.Warn("auto mode classifier error", slog.Any("err", err))
+			} else if verdict == PermissionDeny {
+				emitSystemMessage(out, fmt.Sprintf("Auto Mode denied %s: %s", tc.Name, reason))
+				resultMsg.Content = append(resultMsg.Content, &ContentBlock{
+					Type:      ContentTypeToolResult,
+					ToolUseID: tc.ID,
+					Content:   []*ContentBlock{{Type: ContentTypeText, Text: fmt.Sprintf("Auto Mode denied: %s", reason)}},
+					IsError:   true,
+				})
+				continue
+			} else if verdict == PermissionSoftDeny {
+				emitSystemMessage(out, fmt.Sprintf("Auto Mode soft-denied %s (proceeding with caution): %s", tc.Name, reason))
+			}
+		}
+
+		// ── Per-tool permission check ─────────────────────────────────────
 		if err := t.CheckPermissions(ctx, tc.Input, uctx); err != nil {
 			resultMsg.Content = append(resultMsg.Content, &ContentBlock{
 				Type:      ContentTypeToolResult,

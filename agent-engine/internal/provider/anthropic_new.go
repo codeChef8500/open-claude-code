@@ -89,43 +89,85 @@ func (p *AnthropicProvider) call(ctx context.Context, params CallParams, ch chan
 		req.Tools = apiTools
 	}
 	if params.ThinkingBudget > 0 {
-		// Helper function avoids direct struct literal field assignment.
 		req.Thinking = anthropic.ThinkingConfigParamOfThinkingConfigEnabled(int64(params.ThinkingBudget))
 	}
 
-	msg, err := p.client.Messages.New(ctx, req)
-	if err != nil {
-		return fmt.Errorf("anthropic api: %w", err)
-	}
+	// Use the streaming API for real-time token delivery.
+	stream := p.client.Messages.NewStreaming(ctx, req)
+	defer stream.Close()
 
-	for _, block := range msg.Content {
-		switch block.Type {
-		case "text":
-			ch <- &engine.StreamEvent{Type: engine.EventTextDelta, Text: block.Text}
-		case "thinking":
-			ch <- &engine.StreamEvent{Type: engine.EventThinking, Thinking: block.Thinking}
-		case "tool_use":
-			// block.Input is json.RawMessage in the response type
-			var inputMap interface{}
-			_ = json.Unmarshal(block.Input, &inputMap)
-			ch <- &engine.StreamEvent{
-				Type:      engine.EventToolUse,
-				ToolID:    block.ID,
-				ToolName:  block.Name,
-				ToolInput: inputMap,
+	// Track tool-use blocks being assembled during streaming.
+	type streamingTool struct {
+		id    string
+		name  string
+		input strings.Builder
+	}
+	toolsByIndex := make(map[int]*streamingTool)
+
+	// Accumulate the full message for final usage stats.
+	var accMsg anthropic.Message
+
+	for stream.Next() {
+		ev := stream.Current()
+		_ = accMsg.Accumulate(ev)
+
+		switch ev.Type {
+		case "content_block_start":
+			idx := int(ev.Index)
+			if ev.ContentBlock.Type == "tool_use" {
+				toolsByIndex[idx] = &streamingTool{id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
+			}
+
+		case "content_block_delta":
+			idx := int(ev.Index)
+			switch ev.Delta.Type {
+			case "text_delta":
+				ch <- &engine.StreamEvent{Type: engine.EventTextDelta, Text: ev.Delta.Text}
+			case "thinking_delta":
+				ch <- &engine.StreamEvent{Type: engine.EventThinking, Thinking: ev.Delta.Thinking}
+			case "input_json_delta":
+				if tc, ok := toolsByIndex[idx]; ok {
+					tc.input.WriteString(ev.Delta.PartialJSON)
+				}
+			}
+
+		case "content_block_stop":
+			idx := int(ev.Index)
+			if tc, ok := toolsByIndex[idx]; ok {
+				inputRaw := tc.input.String()
+				if inputRaw == "" {
+					inputRaw = "{}"
+				}
+				var inputMap interface{}
+				_ = json.Unmarshal([]byte(inputRaw), &inputMap)
+				ch <- &engine.StreamEvent{
+					Type:      engine.EventToolUse,
+					ToolID:    tc.id,
+					ToolName:  tc.name,
+					ToolInput: inputMap,
+				}
+				delete(toolsByIndex, idx)
+			}
+
+		case "message_delta":
+			if ev.Usage.OutputTokens > 0 {
+				ch <- &engine.StreamEvent{
+					Type: engine.EventUsage,
+					Usage: &engine.UsageStats{
+						InputTokens:              int(accMsg.Usage.InputTokens),
+						OutputTokens:             int(accMsg.Usage.OutputTokens),
+						CacheCreationInputTokens: int(accMsg.Usage.CacheCreationInputTokens),
+						CacheReadInputTokens:     int(accMsg.Usage.CacheReadInputTokens),
+					},
+				}
 			}
 		}
 	}
 
-	ch <- &engine.StreamEvent{
-		Type: engine.EventUsage,
-		Usage: &engine.UsageStats{
-			InputTokens:              int(msg.Usage.InputTokens),
-			OutputTokens:             int(msg.Usage.OutputTokens),
-			CacheCreationInputTokens: int(msg.Usage.CacheCreationInputTokens),
-			CacheReadInputTokens:     int(msg.Usage.CacheReadInputTokens),
-		},
+	if err := stream.Err(); err != nil {
+		return fmt.Errorf("anthropic stream: %w", err)
 	}
+
 	ch <- &engine.StreamEvent{Type: engine.EventDone}
 	return nil
 }

@@ -7,21 +7,31 @@ import (
 	"fmt"
 
 	"github.com/wall-ai/agent-engine/internal/engine"
+	"github.com/wall-ai/agent-engine/internal/memory"
+	"github.com/wall-ai/agent-engine/internal/mode"
+	"github.com/wall-ai/agent-engine/internal/permission"
+	"github.com/wall-ai/agent-engine/internal/prompt"
 	"github.com/wall-ai/agent-engine/internal/provider"
+	"github.com/wall-ai/agent-engine/internal/session"
 	"github.com/wall-ai/agent-engine/internal/tool"
 	"github.com/wall-ai/agent-engine/internal/tool/agentool"
 	"github.com/wall-ai/agent-engine/internal/tool/askuser"
 	"github.com/wall-ai/agent-engine/internal/tool/bash"
 	"github.com/wall-ai/agent-engine/internal/tool/brief"
+	"github.com/wall-ai/agent-engine/internal/tool/cron"
 	"github.com/wall-ai/agent-engine/internal/tool/fileedit"
 	"github.com/wall-ai/agent-engine/internal/tool/fileread"
 	"github.com/wall-ai/agent-engine/internal/tool/filewrite"
 	"github.com/wall-ai/agent-engine/internal/tool/glob"
 	"github.com/wall-ai/agent-engine/internal/tool/grep"
+	"github.com/wall-ai/agent-engine/internal/tool/listpeers"
 	"github.com/wall-ai/agent-engine/internal/tool/notebookedit"
+	"github.com/wall-ai/agent-engine/internal/tool/planmode"
 	"github.com/wall-ai/agent-engine/internal/tool/sendmessage"
 	"github.com/wall-ai/agent-engine/internal/tool/sleep"
 	"github.com/wall-ai/agent-engine/internal/tool/taskstop"
+	"github.com/wall-ai/agent-engine/internal/tool/teamcreate"
+	"github.com/wall-ai/agent-engine/internal/tool/teamdelete"
 	"github.com/wall-ai/agent-engine/internal/tool/todo"
 	"github.com/wall-ai/agent-engine/internal/tool/webfetch"
 	"github.com/wall-ai/agent-engine/internal/tool/websearch"
@@ -93,6 +103,15 @@ func New(opts ...Option) (*Engine, error) {
 		return nil, fmt.Errorf("sdk.New: engine: %w", err)
 	}
 
+	// Wire optional integrations (avoids circular imports at engine layer).
+	inner.SetMemoryLoader(memory.NewAdapter())
+	inner.SetSessionWriter(session.NewAdapter())
+	inner.SetPromptBuilder(prompt.NewAdapter())
+	inner.SetPermissionChecker(permission.NewAdapter())
+	if o.cfg.AutoMode {
+		inner.SetAutoModeClassifier(mode.NewClassifierAdapter(prov, nil))
+	}
+
 	return &Engine{inner: inner}, nil
 }
 
@@ -115,21 +134,35 @@ func (e *Engine) Close() error { return e.inner.Close() }
 // defaultTools returns the standard set of tools registered for every engine.
 func defaultTools() []tool.Tool {
 	return []tool.Tool{
+		// Core file + shell tools
 		bash.New(),
 		fileread.New(),
 		fileedit.New(),
 		filewrite.New(),
 		grep.New(),
 		glob.New(),
+		// Web tools
 		webfetch.New(),
 		websearch.New("", ""),
+		// Interaction tools
 		askuser.New(),
 		todo.New(),
 		sendmessage.New(),
 		sleep.New(),
 		taskstop.New(),
+		// Notebook / document
 		notebookedit.New(),
+		// Agent coordination
 		brief.New(),
 		agentool.New(nil), // sub-agent runner wired at engine level
+		// Plan mode
+		planmode.NewEnterPlanMode(),
+		planmode.NewExitPlanMode(),
+		// Scheduled tasks
+		cron.New(),
+		// Team / multi-agent
+		teamcreate.New(),
+		teamdelete.New(),
+		listpeers.New(),
 	}
 }

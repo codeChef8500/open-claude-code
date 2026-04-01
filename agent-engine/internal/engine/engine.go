@@ -14,10 +14,17 @@ import (
 // It is the top-level object callers interact with.
 type Engine struct {
 	cfg      EngineConfig
-	caller ModelCaller
+	caller   ModelCaller
 	tools    []Tool
 	store    *state.Store
 	session  *state.SessionState
+
+	// Optional integrations — wired at SDK level to avoid import cycles.
+	memoryLoader      MemoryLoader
+	sessionWriter     SessionWriter
+	promptBuilder     SystemPromptBuilder
+	permChecker       GlobalPermissionChecker
+	autoModeClassifier AutoModeClassifier
 }
 
 // New creates and initialises an Engine from the given config.
@@ -37,16 +44,31 @@ func New(cfg EngineConfig, prov ModelCaller, tools []Tool) (*Engine, error) {
 	sess := state.NewSessionState(cfg.SessionID, cfg.WorkDir)
 
 	return &Engine{
-		cfg:      cfg,
-		caller: prov,
-		tools:    tools,
-		store:    store,
-		session:  sess,
+		cfg:     cfg,
+		caller:  prov,
+		tools:   tools,
+		store:   store,
+		session: sess,
 	}, nil
 }
 
 // SessionID returns the unique identifier of this session.
 func (e *Engine) SessionID() string { return e.session.SessionID() }
+
+// SetMemoryLoader installs a MemoryLoader (e.g. the memory package adapter).
+func (e *Engine) SetMemoryLoader(ml MemoryLoader) { e.memoryLoader = ml }
+
+// SetSessionWriter installs a SessionWriter (e.g. the session storage adapter).
+func (e *Engine) SetSessionWriter(sw SessionWriter) { e.sessionWriter = sw }
+
+// SetPromptBuilder installs a SystemPromptBuilder (e.g. the prompt package adapter).
+func (e *Engine) SetPromptBuilder(pb SystemPromptBuilder) { e.promptBuilder = pb }
+
+// SetPermissionChecker installs a GlobalPermissionChecker.
+func (e *Engine) SetPermissionChecker(pc GlobalPermissionChecker) { e.permChecker = pc }
+
+// SetAutoModeClassifier installs an AutoModeClassifier.
+func (e *Engine) SetAutoModeClassifier(ac AutoModeClassifier) { e.autoModeClassifier = ac }
 
 // Store returns the mutable state store.
 func (e *Engine) Store() *state.Store { return e.store }
