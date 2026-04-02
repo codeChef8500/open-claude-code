@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"runtime/debug"
+	"sync"
 	"time"
 )
 
@@ -66,6 +67,63 @@ func withAPIKeyAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// withCORS adds Cross-Origin Resource Sharing headers.
+func withCORS(allowedOrigins string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := allowedOrigins
+			if origin == "" {
+				origin = "*"
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// withRateLimit is a simple per-IP rate limiter using a sliding window.
+// maxRequests is the max number of requests per window from a single IP.
+func withRateLimit(maxRequests int, window time.Duration) func(http.Handler) http.Handler {
+	type entry struct {
+		count   int
+		resetAt time.Time
+	}
+	var mu sync.Mutex
+	clients := make(map[string]*entry)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := r.RemoteAddr
+			now := time.Now()
+
+			mu.Lock()
+			e, ok := clients[ip]
+			if !ok || now.After(e.resetAt) {
+				e = &entry{count: 0, resetAt: now.Add(window)}
+				clients[ip] = e
+			}
+			e.count++
+			over := e.count > maxRequests
+			mu.Unlock()
+
+			if over {
+				w.Header().Set("Retry-After", "60")
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // loggingResponseWriter captures the HTTP status code for logging.
