@@ -36,11 +36,11 @@ func (t *EnterWorktreeTool) UserFacingName() string { return "enter_worktree" }
 func (t *EnterWorktreeTool) Description() string {
 	return "Create or switch to a git worktree for isolated branch work."
 }
-func (t *EnterWorktreeTool) IsReadOnly() bool        { return false }
-func (t *EnterWorktreeTool) IsConcurrencySafe() bool { return false }
-func (t *EnterWorktreeTool) MaxResultSizeChars() int { return 4096 }
-func (t *EnterWorktreeTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *EnterWorktreeTool) IsDestructive() bool { return false }
+func (t *EnterWorktreeTool) IsReadOnly(_ json.RawMessage) bool        { return false }
+func (t *EnterWorktreeTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
+func (t *EnterWorktreeTool) MaxResultSizeChars() int                  { return 4096 }
+func (t *EnterWorktreeTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+func (t *EnterWorktreeTool) IsDestructive(_ json.RawMessage) bool     { return false }
 
 func (t *EnterWorktreeTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -121,11 +121,11 @@ func (t *ExitWorktreeTool) UserFacingName() string { return "exit_worktree" }
 func (t *ExitWorktreeTool) Description() string {
 	return "Remove a git worktree when done with isolated branch work."
 }
-func (t *ExitWorktreeTool) IsReadOnly() bool        { return false }
-func (t *ExitWorktreeTool) IsConcurrencySafe() bool { return false }
-func (t *ExitWorktreeTool) MaxResultSizeChars() int { return 4096 }
-func (t *ExitWorktreeTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *ExitWorktreeTool) IsDestructive() bool { return true }
+func (t *ExitWorktreeTool) IsReadOnly(_ json.RawMessage) bool        { return false }
+func (t *ExitWorktreeTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
+func (t *ExitWorktreeTool) MaxResultSizeChars() int                  { return 4096 }
+func (t *ExitWorktreeTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+func (t *ExitWorktreeTool) IsDestructive(_ json.RawMessage) bool     { return true }
 
 func (t *ExitWorktreeTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -185,6 +185,94 @@ func (t *ExitWorktreeTool) Call(ctx context.Context, input json.RawMessage, uctx
 		}
 	}()
 	return ch, nil
+}
+
+// ── ListWorktreeTool ────────────────────────────────────────────────────────
+
+// ListWorktreeTool lists all active git worktrees.
+type ListWorktreeTool struct{ tool.BaseTool }
+
+func NewList() *ListWorktreeTool { return &ListWorktreeTool{} }
+
+func (t *ListWorktreeTool) Name() string           { return "ListWorktrees" }
+func (t *ListWorktreeTool) UserFacingName() string { return "list_worktrees" }
+func (t *ListWorktreeTool) Description() string {
+	return "List all git worktrees in the current repository."
+}
+func (t *ListWorktreeTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *ListWorktreeTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
+func (t *ListWorktreeTool) MaxResultSizeChars() int                  { return 8192 }
+func (t *ListWorktreeTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+
+func (t *ListWorktreeTool) InputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{}}`)
+}
+
+func (t *ListWorktreeTool) Prompt(_ *tool.UseContext) string { return "" }
+
+func (t *ListWorktreeTool) CheckPermissions(_ context.Context, _ json.RawMessage, _ *tool.UseContext) error {
+	return nil
+}
+
+func (t *ListWorktreeTool) Call(ctx context.Context, _ json.RawMessage, uctx *tool.UseContext) (<-chan *engine.ContentBlock, error) {
+	ch := make(chan *engine.ContentBlock, 2)
+	go func() {
+		defer close(ch)
+		cmd := exec.CommandContext(ctx, "git", "worktree", "list", "--porcelain")
+		if uctx != nil && uctx.WorkDir != "" {
+			cmd.Dir = uctx.WorkDir
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			ch <- &engine.ContentBlock{
+				Type:    engine.ContentTypeText,
+				Text:    fmt.Sprintf("git worktree list failed: %s\n%s", err, string(out)),
+				IsError: true,
+			}
+			return
+		}
+
+		worktrees := parseWorktreeList(string(out))
+		result, _ := json.MarshalIndent(worktrees, "", "  ")
+		ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: string(result)}
+	}()
+	return ch, nil
+}
+
+// WorktreeInfo describes a single worktree entry.
+type WorktreeInfo struct {
+	Path   string `json:"path"`
+	HEAD   string `json:"head"`
+	Branch string `json:"branch,omitempty"`
+	Bare   bool   `json:"bare,omitempty"`
+}
+
+func parseWorktreeList(output string) []WorktreeInfo {
+	var worktrees []WorktreeInfo
+	var current WorktreeInfo
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if current.Path != "" {
+				worktrees = append(worktrees, current)
+				current = WorktreeInfo{}
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "worktree ") {
+			current.Path = strings.TrimPrefix(line, "worktree ")
+		} else if strings.HasPrefix(line, "HEAD ") {
+			current.HEAD = strings.TrimPrefix(line, "HEAD ")
+		} else if strings.HasPrefix(line, "branch ") {
+			current.Branch = strings.TrimPrefix(line, "branch ")
+		} else if line == "bare" {
+			current.Bare = true
+		}
+	}
+	if current.Path != "" {
+		worktrees = append(worktrees, current)
+	}
+	return worktrees
 }
 
 func sanitizeName(s string) string {

@@ -30,8 +30,8 @@ func (t *SkillTool) Description() string {
 	}
 	return "Run skill: " + t.skill.Meta.Name
 }
-func (t *SkillTool) IsReadOnly() bool                  { return false }
-func (t *SkillTool) IsConcurrencySafe() bool           { return false }
+func (t *SkillTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (t *SkillTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
 func (t *SkillTool) MaxResultSizeChars() int           { return 0 }
 func (t *SkillTool) IsEnabled(_ *tool.UseContext) bool { return true }
 

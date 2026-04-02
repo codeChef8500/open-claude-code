@@ -8,9 +8,19 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/wall-ai/agent-engine/internal/hooks"
 )
 
-const maxTurns = 100
+const (
+	maxTurns                     = 100
+	maxOutputTokensRecoveryLimit = 3
+)
+
+// QueryTracking holds query chain tracking state.
+type QueryTracking struct {
+	ChainID string `json:"chain_id"`
+	Depth   int    `json:"depth"`
+}
 
 // loopState tracks the internal state of a single query loop execution.
 type loopState struct {
@@ -20,6 +30,14 @@ type loopState struct {
 	turnCount    int
 	// tokenBudget is updated with real token counts from EventUsage events.
 	tokenBudget TokenBudgetState
+	// queryTracking tracks the query chain for analytics/debugging.
+	queryTracking QueryTracking
+	// maxOutputRecoveryCount tracks how many times we retried after truncation.
+	maxOutputRecoveryCount int
+	// stopHookActive is true when a stop hook forced a retry.
+	stopHookActive bool
+	// hookPreventedContinuation is set if a tool hook blocked continuation.
+	hookPreventedContinuation bool
 }
 
 // resolveModel returns the effective model name for this query.
@@ -89,9 +107,27 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 	effModel := resolveModel(e, qcfg)
 	effThinking := resolveThinkingBudget(e, qcfg)
 
+	// Fire SessionStart hook.
+	if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventSessionStart) {
+		e.hookExecutor.RunAsync(hooks.EventSessionStart, &hooks.HookInput{})
+	}
+
+	var loopErr error
+	defer func() {
+		// Fire SessionEnd hook.
+		if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventSessionEnd) {
+			e.hookExecutor.RunAsync(hooks.EventSessionEnd, &hooks.HookInput{})
+		}
+	}()
+
 	for ls.turnCount < maxTurns {
 		ls.turnCount++
 		e.session.IncrTurn()
+
+		// Check abort.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// ── 5. Auto-compact using real token budget from EventUsage ───────
 		if !qcfg.DisableCompaction && ls.tokenBudget.ShouldCompact() {
@@ -99,6 +135,10 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 				slog.Int("turn", ls.turnCount),
 				slog.String("session", e.cfg.SessionID),
 				slog.Float64("usage_frac", ls.tokenBudget.UsageFraction()))
+			// Fire PreCompact hook.
+			if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventPreCompact) {
+				e.hookExecutor.RunSync(ctx, hooks.EventPreCompact, &hooks.HookInput{})
+			}
 			emitSystemMessage(out, "Compacting conversation to free context space…")
 			compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, effModel)
 			if err != nil {
@@ -106,6 +146,10 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			} else {
 				ls.messages = compacted
 				ls.tokenBudget.InputTokens = 0 // reset after compact
+			}
+			// Fire PostCompact hook.
+			if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventPostCompact) {
+				e.hookExecutor.RunSync(ctx, hooks.EventPostCompact, &hooks.HookInput{})
 			}
 		} else if !qcfg.DisableCompaction && effMaxTokens > 0 {
 			// Fallback: estimate-based warning when real counts are not yet available.
@@ -144,31 +188,129 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			return err
 		}
 
-		// ── 6. Persist and append assistant turn ──────────────────────────
+		// ── 6. Persist and append assistant turn ──────────────────────
 		if assistantMsg != nil && len(assistantMsg.Content) > 0 {
 			ls.messages = append(ls.messages, assistantMsg)
 			e.persistMessage(assistantMsg)
 		}
 
-		// Execute pending tool calls first, even if the provider sent EventDone.
-		// OpenAI-compatible providers always emit EventDone (setting stop=true)
-		// regardless of whether tool calls are pending, so we must not use `stop`
-		// to gate tool execution.
+		// ── 7. Post-sampling hooks (fire-and-forget) ────────────────
+		if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventPostSampling) && assistantMsg != nil {
+			contentJSON, _ := json.Marshal(assistantMsg.Content)
+			e.hookExecutor.RunAsync(hooks.EventPostSampling, &hooks.HookInput{
+				PostSampling: &hooks.PostSamplingInput{
+					AssistantContent: contentJSON,
+					StopReason:       ls.stopReason,
+				},
+			})
+		}
+
+		// ── 8. Handle abort during streaming ─────────────────────
+		if ctx.Err() != nil {
+			// Emit tombstones for any pending tool calls.
+			for _, tc := range toolCalls {
+				out <- &StreamEvent{
+					Type:     EventToolResult,
+					ToolID:   tc.ID,
+					ToolName: tc.Name,
+					IsError:  true,
+					Text:     "[Interrupted by user]",
+				}
+			}
+			out <- &StreamEvent{Type: EventDone, SessionID: e.cfg.SessionID}
+			return ctx.Err()
+		}
+
+		// ── 9. No tool calls: model wants to stop ─────────────────
 		if len(toolCalls) == 0 {
+			// Max output tokens recovery: if the model was truncated, inject
+			// a recovery message and retry.
+			if ls.stopReason == "max_tokens" && ls.maxOutputRecoveryCount < maxOutputTokensRecoveryLimit {
+				ls.maxOutputRecoveryCount++
+				slog.Info("queryloop: max_tokens recovery",
+					slog.Int("attempt", ls.maxOutputRecoveryCount))
+				recoveryMsg := &Message{
+					ID:   uuid.New().String(),
+					Role: RoleUser,
+					Content: []*ContentBlock{{
+						Type: ContentTypeText,
+						Text: "Output token limit hit. Resume directly \u2014 no apology, no recap of what you were doing. " +
+							"Pick up mid-thought if that is where the cut happened. Break remaining work into smaller pieces.",
+					}},
+				}
+				ls.messages = append(ls.messages, recoveryMsg)
+				e.persistMessage(recoveryMsg)
+				continue // retry
+			}
+
+			// Stop hooks: evaluate whether the model should really stop.
+			if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventStop) && !ls.stopHookActive {
+				stopInput := &hooks.HookInput{
+					Stop: &hooks.StopInput{
+						StopReason: ls.stopReason,
+					},
+				}
+				if assistantMsg != nil {
+					for _, b := range assistantMsg.Content {
+						if b.Type == ContentTypeText {
+							stopInput.Stop.AssistantMessage = b.Text
+							break
+						}
+					}
+				}
+				stopResp := e.hookExecutor.RunSync(ctx, hooks.EventStop, stopInput)
+				if stopResp.Passed != nil && !*stopResp.Passed {
+					// Hook says don't stop — inject failure reason and retry.
+					slog.Info("queryloop: stop hook blocked", slog.String("reason", stopResp.FailureReason))
+					// Fire StopFailure hook.
+					if e.hookExecutor.HasHooksFor(hooks.EventStopFailure) {
+						e.hookExecutor.RunAsync(hooks.EventStopFailure, stopInput)
+					}
+					failMsg := &Message{
+						ID:   uuid.New().String(),
+						Role: RoleUser,
+						Content: []*ContentBlock{{
+							Type: ContentTypeText,
+							Text: fmt.Sprintf("Stop hook failed: %s. Please address this before completing.", stopResp.FailureReason),
+						}},
+					}
+					ls.messages = append(ls.messages, failMsg)
+					e.persistMessage(failMsg)
+					ls.stopHookActive = true
+					continue // retry with stop hook feedback
+				}
+			}
+
 			out <- &StreamEvent{Type: EventDone, SessionID: e.cfg.SessionID}
 			return nil
 		}
 
-		// Execute tool calls and append results.
+		// ── 10. Execute tool calls and append results ─────────────
+		ls.stopHookActive = false // reset for next potential stop
+		ls.maxOutputRecoveryCount = 0
+
 		toolResultMsg, err := executeToolCalls(ctx, e, toolCalls, qdeps.ExtraTools, out)
 		if err != nil {
 			return err
 		}
 		ls.messages = append(ls.messages, toolResultMsg)
 		e.persistMessage(toolResultMsg)
+
+		// Check if a hook prevented continuation.
+		if ls.hookPreventedContinuation {
+			out <- &StreamEvent{Type: EventDone, SessionID: e.cfg.SessionID}
+			return nil
+		}
+
+		// Check abort after tool execution.
+		if ctx.Err() != nil {
+			out <- &StreamEvent{Type: EventDone, SessionID: e.cfg.SessionID}
+			return ctx.Err()
+		}
 	}
 
-	return fmt.Errorf("exceeded maximum turn limit (%d)", maxTurns)
+	loopErr = fmt.Errorf("exceeded maximum turn limit (%d)", maxTurns)
+	return loopErr
 }
 
 // buildSystemPromptIntegratedWithDeps builds the system prompt, honouring any
@@ -421,7 +563,7 @@ func executeToolCalls(
 		}
 
 		g := group{tc: tc, tool: t}
-		if t.IsConcurrencySafe() {
+		if t.IsConcurrencySafe(tc.Input) {
 			concurrent = append(concurrent, g)
 		} else {
 			sequential = append(sequential, g)

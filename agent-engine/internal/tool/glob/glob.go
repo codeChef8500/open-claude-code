@@ -22,14 +22,33 @@ type GlobTool struct{ tool.BaseTool }
 
 func New() *GlobTool { return &GlobTool{} }
 
-func (t *GlobTool) Name() string                      { return "Glob" }
-func (t *GlobTool) UserFacingName() string            { return "glob" }
-func (t *GlobTool) Description() string               { return "Find files matching a glob pattern." }
-func (t *GlobTool) IsReadOnly() bool                  { return true }
-func (t *GlobTool) IsConcurrencySafe() bool           { return true }
-func (t *GlobTool) MaxResultSizeChars() int           { return 50_000 }
-func (t *GlobTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *GlobTool) IsSearchOrRead() bool              { return true }
+func (t *GlobTool) Name() string                             { return "Glob" }
+func (t *GlobTool) UserFacingName() string                   { return "glob" }
+func (t *GlobTool) Description() string                      { return "Find files matching a glob pattern." }
+func (t *GlobTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *GlobTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
+func (t *GlobTool) MaxResultSizeChars() int                  { return 50_000 }
+func (t *GlobTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+func (t *GlobTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo {
+	return engine.SearchOrReadInfo{IsSearch: true, IsList: true}
+}
+func (t *GlobTool) GetActivityDescription(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "Searching files"
+	}
+	return "Searching: " + in.Pattern
+}
+func (t *GlobTool) GetToolUseSummary(input json.RawMessage) string {
+	return t.GetActivityDescription(input)
+}
+func (t *GlobTool) ToAutoClassifierInput(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	return in.Pattern
+}
 
 func (t *GlobTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

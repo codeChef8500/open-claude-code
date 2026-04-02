@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
@@ -30,15 +31,15 @@ type BashTool struct{ tool.BaseTool }
 
 func New() *BashTool { return &BashTool{} }
 
-func (t *BashTool) Name() string                         { return "Bash" }
-func (t *BashTool) UserFacingName() string               { return "bash" }
-func (t *BashTool) Description() string                  { return "Execute a shell command and return its output." }
-func (t *BashTool) IsReadOnly() bool                     { return false }
-func (t *BashTool) IsConcurrencySafe() bool              { return false }
-func (t *BashTool) MaxResultSizeChars() int              { return maxOutputChars }
-func (t *BashTool) IsEnabled(uctx *tool.UseContext) bool { return true }
-func (t *BashTool) IsDestructive() bool                  { return true }
-func (t *BashTool) ShouldDefer() bool                    { return true }
+func (t *BashTool) Name() string                             { return "Bash" }
+func (t *BashTool) UserFacingName() string                   { return "bash" }
+func (t *BashTool) Description() string                      { return "Execute a shell command and return its output." }
+func (t *BashTool) IsReadOnly(_ json.RawMessage) bool        { return false }
+func (t *BashTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
+func (t *BashTool) MaxResultSizeChars() int                  { return maxOutputChars }
+func (t *BashTool) IsEnabled(uctx *tool.UseContext) bool     { return true }
+func (t *BashTool) IsDestructive(_ json.RawMessage) bool     { return true }
+func (t *BashTool) ShouldDefer() bool                        { return true }
 func (t *BashTool) InterruptBehavior() engine.InterruptBehavior {
 	return engine.InterruptBehaviorReturn
 }
@@ -55,6 +56,21 @@ func (t *BashTool) GetActivityDescription(input json.RawMessage) string {
 }
 func (t *BashTool) GetToolUseSummary(input json.RawMessage) string {
 	return t.GetActivityDescription(input)
+}
+func (t *BashTool) Aliases() []string { return []string{"bash", "shell"} }
+func (t *BashTool) ToAutoClassifierInput(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	return in.Command
+}
+func (t *BashTool) IsSearchOrRead(input json.RawMessage) engine.SearchOrReadInfo {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return engine.SearchOrReadInfo{}
+	}
+	return classifyBashCommand(in.Command)
 }
 
 func (t *BashTool) InputSchema() json.RawMessage {
@@ -136,6 +152,30 @@ func (t *BashTool) Call(ctx context.Context, input json.RawMessage, uctx *tool.U
 		}
 	}()
 	return ch, nil
+}
+
+// classifyBashCommand checks if a command is a search or read operation.
+func classifyBashCommand(command string) engine.SearchOrReadInfo {
+	cmd := strings.TrimSpace(command)
+	if cmd == "" {
+		return engine.SearchOrReadInfo{}
+	}
+	// Extract the first token (the actual binary).
+	first := strings.Fields(cmd)[0]
+	// Strip path prefixes.
+	if idx := strings.LastIndex(first, "/"); idx >= 0 {
+		first = first[idx+1:]
+	}
+	switch first {
+	case "grep", "rg", "ag", "ack", "find", "fd", "fzf", "locate":
+		return engine.SearchOrReadInfo{IsSearch: true}
+	case "cat", "head", "tail", "less", "more", "wc", "file", "stat", "ls", "dir", "tree", "du", "df":
+		return engine.SearchOrReadInfo{IsRead: true}
+	}
+	if ok, _ := IsReadOnlyCommand(cmd); ok {
+		return engine.SearchOrReadInfo{IsRead: true}
+	}
+	return engine.SearchOrReadInfo{}
 }
 
 func buildOutput(r *util.ExecResult) string {

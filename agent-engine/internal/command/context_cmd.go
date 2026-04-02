@@ -9,11 +9,11 @@ import (
 // ─── /context ─────────────────────────────────────────────────────────────────
 
 // ContextCommand shows a summary of the current context window usage.
-type ContextCommand struct{}
+type ContextCommand struct{ BaseCommand }
 
-func (c *ContextCommand) Name() string        { return "context" }
-func (c *ContextCommand) Description() string { return "Show context window usage and token budget." }
-func (c *ContextCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *ContextCommand) Name() string                  { return "context" }
+func (c *ContextCommand) Description() string           { return "Show context window usage and token budget." }
+func (c *ContextCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *ContextCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *ContextCommand) Execute(_ context.Context, _ []string, ectx *ExecContext) (string, error) {
 	if ectx == nil {

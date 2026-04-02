@@ -26,8 +26,8 @@ func (t *TaskCreateTool) UserFacingName() string { return "task_create" }
 func (t *TaskCreateTool) Description() string {
 	return "Create a new tracked task with a title and optional description."
 }
-func (t *TaskCreateTool) IsReadOnly() bool                     { return false }
-func (t *TaskCreateTool) IsConcurrencySafe() bool              { return true }
+func (t *TaskCreateTool) IsReadOnly(_ json.RawMessage) bool                     { return false }
+func (t *TaskCreateTool) IsConcurrencySafe(_ json.RawMessage) bool              { return true }
 func (t *TaskCreateTool) MaxResultSizeChars() int              { return 2048 }
 func (t *TaskCreateTool) IsEnabled(_ *tool.UseContext) bool    { return true }
 

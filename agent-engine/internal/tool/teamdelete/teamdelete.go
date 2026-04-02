@@ -19,8 +19,8 @@ func (t *TeamDeleteTool) UserFacingName() string { return "TeamDelete" }
 func (t *TeamDeleteTool) Description() string {
 	return "Cancel all agents in a team and remove the team from the registry."
 }
-func (t *TeamDeleteTool) IsReadOnly() bool                  { return false }
-func (t *TeamDeleteTool) IsConcurrencySafe() bool           { return false }
+func (t *TeamDeleteTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (t *TeamDeleteTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
 func (t *TeamDeleteTool) MaxResultSizeChars() int           { return 500 }
 func (t *TeamDeleteTool) IsEnabled(_ *tool.UseContext) bool { return true }
 

@@ -20,11 +20,11 @@ func (t *ListPeersTool) UserFacingName() string { return "ListPeers" }
 func (t *ListPeersTool) Description() string {
 	return "List all currently active peer agents and their statuses."
 }
-func (t *ListPeersTool) IsReadOnly() bool                  { return true }
-func (t *ListPeersTool) IsConcurrencySafe() bool           { return true }
+func (t *ListPeersTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *ListPeersTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *ListPeersTool) MaxResultSizeChars() int           { return 4000 }
 func (t *ListPeersTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *ListPeersTool) IsSearchOrRead() bool              { return true }
+func (t *ListPeersTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
 
 func (t *ListPeersTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)

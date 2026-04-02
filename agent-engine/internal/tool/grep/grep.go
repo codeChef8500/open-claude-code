@@ -33,11 +33,11 @@ func New() *GrepTool { return &GrepTool{} }
 func (t *GrepTool) Name() string                      { return "Grep" }
 func (t *GrepTool) UserFacingName() string            { return "grep" }
 func (t *GrepTool) Description() string               { return "Search files for a pattern using ripgrep." }
-func (t *GrepTool) IsReadOnly() bool                  { return true }
-func (t *GrepTool) IsConcurrencySafe() bool           { return true }
+func (t *GrepTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *GrepTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *GrepTool) MaxResultSizeChars() int           { return maxOutputChars }
 func (t *GrepTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *GrepTool) IsSearchOrRead() bool              { return true }
+func (t *GrepTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
 
 func (t *GrepTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

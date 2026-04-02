@@ -17,8 +17,8 @@ type ModelCaller interface {
 // Providers that support prompt caching (e.g. Anthropic) inject each part as a
 // separate text block so stable layers benefit from cache hits independently.
 type SystemPromptPart struct {
-	Content    string
-	CacheHint  bool // if true, attach cache_control=ephemeral to this block
+	Content   string
+	CacheHint bool // if true, attach cache_control=ephemeral to this block
 }
 
 // CallParams holds all parameters needed for a single model API call.
@@ -37,6 +37,10 @@ type CallParams struct {
 	UsePromptCache    bool
 	SkipCacheWrite    bool
 	ExtraHeaders      map[string]string
+	ToolChoice        *ToolChoice
+	StopSequences     []string
+	JSONSchema        interface{} // json.RawMessage or nil
+	FallbackModel     string
 }
 
 // ToolDefinition is the wire format for a tool spec sent to the LLM.

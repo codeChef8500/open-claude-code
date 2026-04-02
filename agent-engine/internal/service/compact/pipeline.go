@@ -3,8 +3,11 @@ package compact
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 
 	"github.com/wall-ai/agent-engine/internal/engine"
+	"github.com/wall-ai/agent-engine/internal/hooks"
 	"github.com/wall-ai/agent-engine/internal/provider"
 )
 
@@ -25,6 +28,16 @@ type PipelineConfig struct {
 	Model string
 	// DisableAutoCompact skips the LLM-driven pass even if still over budget.
 	DisableAutoCompact bool
+	// HookExecutor fires PreCompact/PostCompact hooks if configured.
+	HookExecutor *hooks.Executor
+	// CustomInstructions are user-provided custom compact instructions.
+	CustomInstructions string
+	// IsAutoCompact distinguishes auto-compact from manual /compact.
+	IsAutoCompact bool
+	// MaxPTLRetries is the maximum prompt-too-long retries (default 3).
+	MaxPTLRetries int
+	// MicroCompactConfig overrides MicroCompact defaults.
+	MicroCompactCfg *MicroCompactConfig
 }
 
 // PipelineResult summarises what the pipeline did.
@@ -33,14 +46,20 @@ type PipelineResult struct {
 	TokensAfter  int
 	Summary      string   // non-empty only if AutoCompact ran
 	PassesRun    []string // names of passes that executed
+	// CompactionResult is the full result when AutoCompact ran.
+	CompactionResult *CompactionResult
 }
 
 // RunPipeline executes the compact pipeline in order:
 //
-//  1. MicroCompact  – collapse whitespace, truncate huge text blocks
-//  2. CollapseToolResults – snip oversized tool outputs
-//  3. Snip          – remove middle messages beyond keep window
-//  4. AutoCompact   – LLM summarisation (only if still over budget)
+//  1. StripImages   – remove images before compaction
+//  2. MicroCompact  – collapse whitespace, truncate huge text blocks
+//  3. CollapseToolResults – snip oversized tool outputs
+//  4. Snip          – remove middle messages beyond keep window
+//  5. AutoCompact   – LLM summarisation (only if still over budget)
+//
+// Hooks are fired at the beginning (PreCompact) and end (PostCompact)
+// if a HookExecutor is configured.
 func RunPipeline(
 	ctx context.Context,
 	prov provider.Provider,
@@ -57,13 +76,42 @@ func RunPipeline(
 	if cfg.CollapseMaxChars <= 0 {
 		cfg.CollapseMaxChars = 4_000
 	}
+	if cfg.MaxPTLRetries <= 0 {
+		cfg.MaxPTLRetries = 3
+	}
 
 	result := &PipelineResult{
 		TokensBefore: estimateTokens(flattenText(messages)),
 	}
 
+	// ── Fire PreCompact hook ────────────────────────────────────────────
+	customInstructions := cfg.CustomInstructions
+	if cfg.HookExecutor != nil && cfg.HookExecutor.HasHooksFor(hooks.EventPreCompact) {
+		trigger := "manual"
+		if cfg.IsAutoCompact {
+			trigger = "auto"
+		}
+		hookResp := cfg.HookExecutor.RunSync(ctx, hooks.EventPreCompact, &hooks.HookInput{
+			PreCompact: &hooks.PreCompactInput{
+				Trigger:            trigger,
+				CustomInstructions: customInstructions,
+			},
+		})
+		if hookResp.NewCustomInstructions != "" {
+			customInstructions = MergeHookInstructions(customInstructions, hookResp.NewCustomInstructions)
+		}
+	}
+
+	// ── Pass 0: StripImages ─────────────────────────────────────────────
+	messages = StripImagesFromMessages(messages)
+	result.PassesRun = append(result.PassesRun, "strip_images")
+
 	// ── Pass 1: MicroCompact ──────────────────────────────────────────────
-	messages = MicroCompact(messages, cfg.MicroMaxBlockChars)
+	if cfg.MicroCompactCfg != nil {
+		messages = MicroCompactWithConfig(messages, *cfg.MicroCompactCfg)
+	} else {
+		messages = MicroCompact(messages, cfg.MicroMaxBlockChars)
+	}
 	result.PassesRun = append(result.PassesRun, "micro")
 
 	// ── Pass 2: CollapseToolResults ───────────────────────────────────────
@@ -79,18 +127,93 @@ func RunPipeline(
 		est := estimateTokens(flattenText(messages))
 		target := int(float64(cfg.MaxTokens) * cfg.CompactionFraction)
 		if est > target {
-			autoResult, err := RunAutoCompact(ctx, prov, messages, cfg.Model)
-			if err != nil {
-				return messages, result, fmt.Errorf("pipeline autocompact: %w", err)
+			// PTL retry loop: if the compact call itself hits prompt-too-long,
+			// truncate oldest groups and retry.
+			var autoResult *AutoCompactResult
+			var autoErr error
+			msgsToSummarize := messages
+			for attempt := 0; attempt <= cfg.MaxPTLRetries; attempt++ {
+				autoResult, autoErr = RunAutoCompact(ctx, prov, msgsToSummarize, cfg.Model, customInstructions)
+				if autoErr == nil {
+					break
+				}
+				// Check if the error looks like prompt-too-long.
+				if !isPromptTooLongError(autoErr) || attempt >= cfg.MaxPTLRetries {
+					break
+				}
+				slog.Info("pipeline: PTL retry",
+					slog.Int("attempt", attempt+1),
+					slog.Int("messages", len(msgsToSummarize)))
+				truncated := TruncateHeadForPTLRetry(msgsToSummarize, 0)
+				if truncated == nil {
+					break // nothing left to drop
+				}
+				msgsToSummarize = truncated
+			}
+			if autoErr != nil {
+				return messages, result, fmt.Errorf("pipeline autocompact: %w", autoErr)
 			}
 			result.Summary = autoResult.Summary
 			result.PassesRun = append(result.PassesRun, "auto")
-			messages = SummaryToMessages(autoResult.Summary)
+			result.CompactionResult = &CompactionResult{
+				SummaryMessages:       SummaryToMessages(autoResult.Summary),
+				PreCompactTokenCount:  autoResult.TokensBefore,
+				PostCompactTokenCount: autoResult.TokensAfter,
+				CompactionUsage:       autoResult.Usage,
+			}
+			messages = result.CompactionResult.SummaryMessages
 		}
 	}
 
 	result.TokensAfter = estimateTokens(flattenText(messages))
 	return messages, result, nil
+}
+
+// isPromptTooLongError checks if an error looks like a prompt-too-long API error.
+func isPromptTooLongError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "prompt is too long") ||
+		strings.Contains(msg, "prompt_too_long") ||
+		strings.Contains(msg, "maximum context length")
+}
+
+// CompactConversation is the high-level entry point for compacting a conversation.
+// It runs the full pipeline with hooks, image stripping, and PTL retry.
+func CompactConversation(
+	ctx context.Context,
+	prov provider.Provider,
+	messages []*engine.Message,
+	cfg PipelineConfig,
+) (*CompactionResult, error) {
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("not enough messages to compact")
+	}
+
+	preTokens := estimateTokensFromMessages(messages)
+
+	newMsgs, pipeResult, err := RunPipeline(ctx, prov, messages, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the pipeline produced a CompactionResult (auto-compact ran), use it.
+	if pipeResult.CompactionResult != nil {
+		pipeResult.CompactionResult.PreCompactTokenCount = preTokens
+		pipeResult.CompactionResult.TruePostCompactTokenCount = estimateTokensFromMessages(newMsgs)
+		return pipeResult.CompactionResult, nil
+	}
+
+	// Otherwise build a result from the pipeline output.
+	postTokens := estimateTokensFromMessages(newMsgs)
+	return &CompactionResult{
+		SummaryMessages:           newMsgs,
+		PreCompactTokenCount:      preTokens,
+		PostCompactTokenCount:     postTokens,
+		TruePostCompactTokenCount: postTokens,
+	}, nil
 }
 
 // SummaryToMessages converts an auto-compact summary string into the standard

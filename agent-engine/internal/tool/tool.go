@@ -63,26 +63,31 @@ func (b *BaseTool) ValidateInput(_ context.Context, _ json.RawMessage) error { r
 func (b *BaseTool) Aliases() []string { return nil }
 
 // IsDestructive returns false by default.
-// Write tools (Bash, Edit, Write …) should override and return true.
-func (b *BaseTool) IsDestructive() bool { return false }
+func (b *BaseTool) IsDestructive(_ json.RawMessage) bool { return false }
 
-// InterruptBehavior returns InterruptBehaviorNone by default
-// (the tool is allowed to complete normally when the loop is cancelled).
+// IsReadOnly returns false by default.
+func (b *BaseTool) IsReadOnly(_ json.RawMessage) bool { return false }
+
+// IsConcurrencySafe returns false by default (assume not safe).
+func (b *BaseTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
+
+// InterruptBehavior returns InterruptBehaviorNone by default.
 func (b *BaseTool) InterruptBehavior() engine.InterruptBehavior {
 	return engine.InterruptBehaviorNone
 }
 
-// IsSearchOrRead returns false by default.
-// Read/search tools (Read, Grep, Glob …) should override and return true.
-func (b *BaseTool) IsSearchOrRead() bool { return false }
+// IsSearchOrRead returns all-false by default.
+func (b *BaseTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo {
+	return engine.SearchOrReadInfo{}
+}
 
 // GetPath extracts no filesystem path from the input by default.
 func (b *BaseTool) GetPath(_ json.RawMessage) string { return "" }
 
-// ShouldDefer returns false by default (tool runs immediately in plan mode).
+// ShouldDefer returns false by default.
 func (b *BaseTool) ShouldDefer() bool { return false }
 
-// AlwaysLoad returns false by default; the tool is included only when active.
+// AlwaysLoad returns false by default.
 func (b *BaseTool) AlwaysLoad() bool { return false }
 
 // SearchHint returns an empty hint by default.
@@ -97,5 +102,54 @@ func (b *BaseTool) GetToolUseSummary(_ json.RawMessage) string { return "" }
 // IsTransparentWrapper returns false by default.
 func (b *BaseTool) IsTransparentWrapper() bool { return false }
 
-// OutputSchema returns nil by default (no structured output schema).
+// OutputSchema returns nil by default.
 func (b *BaseTool) OutputSchema() json.RawMessage { return nil }
+
+// IsMCP returns false by default.
+func (b *BaseTool) IsMCP() bool { return false }
+
+// IsLSP returns false by default.
+func (b *BaseTool) IsLSP() bool { return false }
+
+// IsOpenWorld returns false by default.
+func (b *BaseTool) IsOpenWorld(_ json.RawMessage) bool { return false }
+
+// RequiresUserInteraction returns false by default.
+func (b *BaseTool) RequiresUserInteraction() bool { return false }
+
+// Strict returns false by default.
+func (b *BaseTool) Strict() bool { return false }
+
+// ToAutoClassifierInput returns "" by default (skip classifier).
+func (b *BaseTool) ToAutoClassifierInput(_ json.RawMessage) string { return "" }
+
+// InputsEquivalent returns false by default (assume inputs are different).
+func (b *BaseTool) InputsEquivalent(_, _ json.RawMessage) bool { return false }
+
+// PreparePermissionMatcher returns nil by default.
+func (b *BaseTool) PreparePermissionMatcher(_ json.RawMessage) func(string) bool { return nil }
+
+// BackfillObservableInput does nothing by default.
+func (b *BaseTool) BackfillObservableInput(_ map[string]interface{}) {}
+
+// MapToolResultToBlockParam returns a simple text content block by default.
+func (b *BaseTool) MapToolResultToBlockParam(content interface{}, toolUseID string) *engine.ContentBlock {
+	text := ""
+	if s, ok := content.(string); ok {
+		text = s
+	}
+	return &engine.ContentBlock{
+		Type:      engine.ContentTypeToolResult,
+		ToolUseID: toolUseID,
+		Text:      text,
+	}
+}
+
+// IsResultTruncated returns false by default.
+func (b *BaseTool) IsResultTruncated(_ interface{}) bool { return false }
+
+// ContextModifier returns nil by default (no context modification).
+func (b *BaseTool) ContextModifier() func(*engine.UseContext) *engine.UseContext { return nil }
+
+// MCPInfo returns nil by default (not an MCP tool).
+func (b *BaseTool) MCPInfo() *engine.MCPToolInfo { return nil }

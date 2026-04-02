@@ -22,11 +22,11 @@ func (t *TaskGetTool) UserFacingName() string { return "task_get" }
 func (t *TaskGetTool) Description() string {
 	return "Retrieve a task by ID and return its current state."
 }
-func (t *TaskGetTool) IsReadOnly() bool                  { return true }
-func (t *TaskGetTool) IsConcurrencySafe() bool           { return true }
+func (t *TaskGetTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *TaskGetTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *TaskGetTool) MaxResultSizeChars() int           { return 4096 }
 func (t *TaskGetTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *TaskGetTool) IsSearchOrRead() bool              { return true }
+func (t *TaskGetTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
 
 func (t *TaskGetTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

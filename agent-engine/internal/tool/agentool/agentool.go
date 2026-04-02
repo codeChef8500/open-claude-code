@@ -33,8 +33,8 @@ func New(runner SubAgentRunner) *AgentTool {
 func (t *AgentTool) Name() string                      { return "Task" }
 func (t *AgentTool) UserFacingName() string            { return "task" }
 func (t *AgentTool) Description() string               { return "Spawn a sub-agent to complete a task autonomously." }
-func (t *AgentTool) IsReadOnly() bool                  { return false }
-func (t *AgentTool) IsConcurrencySafe() bool           { return true }
+func (t *AgentTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (t *AgentTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *AgentTool) MaxResultSizeChars() int           { return 50_000 }
 func (t *AgentTool) IsEnabled(_ *tool.UseContext) bool { return true }
 func (t *AgentTool) IsTransparentWrapper() bool        { return true }

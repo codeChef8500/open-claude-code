@@ -9,7 +9,7 @@ import (
 // ─── /verbose ─────────────────────────────────────────────────────────────────
 
 // VerboseCommand toggles verbose/debug output.
-type VerboseCommand struct{}
+type VerboseCommand struct{ BaseCommand }
 
 func (c *VerboseCommand) Name() string { return "verbose" }
 func (c *VerboseCommand) Description() string {
@@ -45,7 +45,7 @@ func (c *VerboseCommand) Execute(_ context.Context, args []string, ectx *ExecCon
 // ─── /plan ────────────────────────────────────────────────────────────────────
 
 // PlanCommand toggles plan-only mode.
-type PlanCommand struct{}
+type PlanCommand struct{ BaseCommand }
 
 func (c *PlanCommand) Name() string { return "plan" }
 func (c *PlanCommand) Description() string {

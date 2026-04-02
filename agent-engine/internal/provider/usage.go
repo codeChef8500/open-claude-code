@@ -8,10 +8,11 @@ import (
 
 // ModelPricing holds per-million-token prices for a model.
 type ModelPricing struct {
-	InputPerMillion       float64
-	OutputPerMillion      float64
-	CacheWritePerMillion  float64
-	CacheReadPerMillion   float64
+	InputPerMillion      float64
+	OutputPerMillion     float64
+	CacheWritePerMillion float64
+	CacheReadPerMillion  float64
+	WebSearchPerRequest  float64 // cost per web search request
 }
 
 // Cost computes the USD cost for the given token counts.
@@ -22,15 +23,31 @@ func (p ModelPricing) Cost(inputTokens, outputTokens, cacheWrite, cacheRead int)
 		float64(cacheRead)/1_000_000*p.CacheReadPerMillion
 }
 
+// CostWithWebSearch computes the USD cost including web search requests.
+func (p ModelPricing) CostWithWebSearch(inputTokens, outputTokens, cacheWrite, cacheRead, webSearchRequests int) float64 {
+	return p.Cost(inputTokens, outputTokens, cacheWrite, cacheRead) +
+		float64(webSearchRequests)*p.WebSearchPerRequest
+}
+
 // knownPricing maps model prefixes to pricing info.
+// Aligned with claude-code-main modelCost.ts.
 var knownPricing = map[string]ModelPricing{
-	"claude-opus-4":         {InputPerMillion: 15.0, OutputPerMillion: 75.0, CacheWritePerMillion: 18.75, CacheReadPerMillion: 1.50},
-	"claude-sonnet-4":       {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheWritePerMillion: 3.75, CacheReadPerMillion: 0.30},
-	"claude-3-7-sonnet":     {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheWritePerMillion: 3.75, CacheReadPerMillion: 0.30},
-	"claude-3-5-sonnet":     {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheWritePerMillion: 3.75, CacheReadPerMillion: 0.30},
-	"claude-3-5-haiku":      {InputPerMillion: 0.80, OutputPerMillion: 4.0, CacheWritePerMillion: 1.0, CacheReadPerMillion: 0.08},
-	"claude-3-haiku":        {InputPerMillion: 0.25, OutputPerMillion: 1.25, CacheWritePerMillion: 0.30, CacheReadPerMillion: 0.03},
-	"claude-3-opus":         {InputPerMillion: 15.0, OutputPerMillion: 75.0, CacheWritePerMillion: 18.75, CacheReadPerMillion: 1.50},
+	// Opus family
+	"claude-opus-4-6": {InputPerMillion: 5.0, OutputPerMillion: 25.0, CacheWritePerMillion: 6.25, CacheReadPerMillion: 0.50, WebSearchPerRequest: 0.01},
+	"claude-opus-4-5": {InputPerMillion: 5.0, OutputPerMillion: 25.0, CacheWritePerMillion: 6.25, CacheReadPerMillion: 0.50, WebSearchPerRequest: 0.01},
+	"claude-opus-4-1": {InputPerMillion: 15.0, OutputPerMillion: 75.0, CacheWritePerMillion: 18.75, CacheReadPerMillion: 1.50, WebSearchPerRequest: 0.01},
+	"claude-opus-4":   {InputPerMillion: 15.0, OutputPerMillion: 75.0, CacheWritePerMillion: 18.75, CacheReadPerMillion: 1.50, WebSearchPerRequest: 0.01},
+	// Sonnet family
+	"claude-sonnet-4-6": {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheWritePerMillion: 3.75, CacheReadPerMillion: 0.30, WebSearchPerRequest: 0.01},
+	"claude-sonnet-4-5": {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheWritePerMillion: 3.75, CacheReadPerMillion: 0.30, WebSearchPerRequest: 0.01},
+	"claude-sonnet-4":   {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheWritePerMillion: 3.75, CacheReadPerMillion: 0.30, WebSearchPerRequest: 0.01},
+	"claude-3-7-sonnet": {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheWritePerMillion: 3.75, CacheReadPerMillion: 0.30, WebSearchPerRequest: 0.01},
+	"claude-3-5-sonnet": {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheWritePerMillion: 3.75, CacheReadPerMillion: 0.30, WebSearchPerRequest: 0.01},
+	// Haiku family
+	"claude-haiku-4-5": {InputPerMillion: 1.0, OutputPerMillion: 5.0, CacheWritePerMillion: 1.25, CacheReadPerMillion: 0.10, WebSearchPerRequest: 0.01},
+	"claude-3-5-haiku": {InputPerMillion: 0.80, OutputPerMillion: 4.0, CacheWritePerMillion: 1.0, CacheReadPerMillion: 0.08, WebSearchPerRequest: 0.01},
+	"claude-3-haiku":   {InputPerMillion: 0.25, OutputPerMillion: 1.25, CacheWritePerMillion: 0.30, CacheReadPerMillion: 0.03},
+	"claude-3-opus":    {InputPerMillion: 15.0, OutputPerMillion: 75.0, CacheWritePerMillion: 18.75, CacheReadPerMillion: 1.50},
 }
 
 // LookupPricing returns the pricing for a model by prefix match.

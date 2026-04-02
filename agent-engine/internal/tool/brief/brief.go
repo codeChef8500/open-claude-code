@@ -23,8 +23,8 @@ func New() *BriefTool { return &BriefTool{} }
 func (t *BriefTool) Name() string                      { return "Brief" }
 func (t *BriefTool) UserFacingName() string            { return "brief" }
 func (t *BriefTool) Description() string               { return "Emit a structured brief or progress summary." }
-func (t *BriefTool) IsReadOnly() bool                  { return true }
-func (t *BriefTool) IsConcurrencySafe() bool           { return true }
+func (t *BriefTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *BriefTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *BriefTool) MaxResultSizeChars() int           { return 10_000 }
 func (t *BriefTool) IsEnabled(_ *tool.UseContext) bool { return true }
 

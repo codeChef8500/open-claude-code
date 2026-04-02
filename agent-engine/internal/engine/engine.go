@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wall-ai/agent-engine/internal/hooks"
 	"github.com/wall-ai/agent-engine/internal/state"
 )
 
@@ -31,6 +32,7 @@ type Engine struct {
 	promptBuilder      SystemPromptBuilder
 	permChecker        GlobalPermissionChecker
 	autoModeClassifier AutoModeClassifier
+	hookExecutor       *hooks.Executor
 }
 
 // New creates and initialises an Engine from the given config.
@@ -93,6 +95,12 @@ func (e *Engine) SetPermissionChecker(pc GlobalPermissionChecker) { e.permChecke
 
 // SetAutoModeClassifier installs an AutoModeClassifier.
 func (e *Engine) SetAutoModeClassifier(ac AutoModeClassifier) { e.autoModeClassifier = ac }
+
+// SetHookExecutor installs the hooks executor.
+func (e *Engine) SetHookExecutor(he *hooks.Executor) { e.hookExecutor = he }
+
+// HookExecutor returns the hook executor (may be nil).
+func (e *Engine) HookExecutor() *hooks.Executor { return e.hookExecutor }
 
 // Store returns the mutable state store.
 func (e *Engine) Store() *state.Store { return e.store }

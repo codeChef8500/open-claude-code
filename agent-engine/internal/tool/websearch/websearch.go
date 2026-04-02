@@ -45,11 +45,11 @@ func New(apiKey, baseURL string) *WebSearchTool {
 func (t *WebSearchTool) Name() string                      { return "WebSearch" }
 func (t *WebSearchTool) UserFacingName() string            { return "web_search" }
 func (t *WebSearchTool) Description() string               { return "Search the web for information." }
-func (t *WebSearchTool) IsReadOnly() bool                  { return true }
-func (t *WebSearchTool) IsConcurrencySafe() bool           { return true }
+func (t *WebSearchTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *WebSearchTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *WebSearchTool) MaxResultSizeChars() int           { return 50_000 }
 func (t *WebSearchTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *WebSearchTool) IsSearchOrRead() bool              { return true }
+func (t *WebSearchTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
 
 func (t *WebSearchTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

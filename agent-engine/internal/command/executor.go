@@ -46,18 +46,7 @@ func (e *Executor) Execute(ctx context.Context, raw string, ectx *ExecContext) (
 		return "", fmt.Errorf("command /%s is not available in the current context", name)
 	}
 
-	switch c := cmd.(type) {
-	case LocalCommand:
-		return c.Execute(ctx, args, ectx)
-	case PromptCommand:
-		content, err := c.PromptContent(args, ectx)
-		if err != nil {
-			return "", err
-		}
-		return "__prompt__:" + content, nil
-	default:
-		return "", fmt.Errorf("command /%s has unknown type", name)
-	}
+	return dispatchCommand(ctx, cmd, name, args, ectx)
 }
 
 // Execute is a package-level convenience function that dispatches a command
@@ -70,8 +59,13 @@ func Execute(ctx context.Context, name string, args []string, ectx *ExecContext)
 	if !cmd.IsEnabled(ectx) {
 		return "", fmt.Errorf("command /%s is not available in the current context", name)
 	}
+	return dispatchCommand(ctx, cmd, name, args, ectx)
+}
+
+func dispatchCommand(ctx context.Context, cmd Command, name string, args []string, ectx *ExecContext) (string, error) {
 	switch c := cmd.(type) {
 	case LocalCommand:
+		// Handles both LocalCommand and MetaCommand (same Execute signature).
 		return c.Execute(ctx, args, ectx)
 	case PromptCommand:
 		content, err := c.PromptContent(args, ectx)

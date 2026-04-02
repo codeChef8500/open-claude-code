@@ -87,8 +87,8 @@ func (p *ExternalPlugin) Close() { p.client.Kill() }
 func (p *ExternalPlugin) Name() string                      { return p.meta.Name }
 func (p *ExternalPlugin) UserFacingName() string            { return p.meta.Name }
 func (p *ExternalPlugin) Description() string               { return p.meta.Description }
-func (p *ExternalPlugin) IsReadOnly() bool                  { return false }
-func (p *ExternalPlugin) IsConcurrencySafe() bool           { return false }
+func (p *ExternalPlugin) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (p *ExternalPlugin) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
 func (p *ExternalPlugin) MaxResultSizeChars() int           { return 50_000 }
 func (p *ExternalPlugin) IsEnabled(_ *tool.UseContext) bool { return true }
 func (p *ExternalPlugin) InputSchema() json.RawMessage      { return p.meta.InputSchema }

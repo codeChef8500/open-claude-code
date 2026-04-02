@@ -8,11 +8,11 @@ import (
 
 // ─── /memory ──────────────────────────────────────────────────────────────────
 
-type MemoryCommand struct{}
+type MemoryCommand struct{ BaseCommand }
 
-func (c *MemoryCommand) Name() string        { return "memory" }
-func (c *MemoryCommand) Description() string { return "Show or clear extracted session memories." }
-func (c *MemoryCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *MemoryCommand) Name() string                  { return "memory" }
+func (c *MemoryCommand) Description() string           { return "Show or clear extracted session memories." }
+func (c *MemoryCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *MemoryCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *MemoryCommand) Execute(_ context.Context, args []string, _ *ExecContext) (string, error) {
 	if len(args) > 0 && strings.ToLower(args[0]) == "clear" {
@@ -23,11 +23,13 @@ func (c *MemoryCommand) Execute(_ context.Context, args []string, _ *ExecContext
 
 // ─── /resume ──────────────────────────────────────────────────────────────────
 
-type ResumeCommand struct{}
+type ResumeCommand struct{ BaseCommand }
 
-func (c *ResumeCommand) Name() string        { return "resume" }
-func (c *ResumeCommand) Description() string { return "Resume a previous session. Usage: /resume [session-id]" }
-func (c *ResumeCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *ResumeCommand) Name() string { return "resume" }
+func (c *ResumeCommand) Description() string {
+	return "Resume a previous session. Usage: /resume [session-id]"
+}
+func (c *ResumeCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *ResumeCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *ResumeCommand) Execute(_ context.Context, args []string, _ *ExecContext) (string, error) {
 	if len(args) == 0 {
@@ -38,11 +40,13 @@ func (c *ResumeCommand) Execute(_ context.Context, args []string, _ *ExecContext
 
 // ─── /session ─────────────────────────────────────────────────────────────────
 
-type SessionCommand struct{}
+type SessionCommand struct{ BaseCommand }
 
-func (c *SessionCommand) Name() string        { return "session" }
-func (c *SessionCommand) Description() string { return "Show current session info or list recent sessions." }
-func (c *SessionCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *SessionCommand) Name() string { return "session" }
+func (c *SessionCommand) Description() string {
+	return "Show current session info or list recent sessions."
+}
+func (c *SessionCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *SessionCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *SessionCommand) Execute(_ context.Context, args []string, ectx *ExecContext) (string, error) {
 	if ectx == nil {
@@ -54,11 +58,11 @@ func (c *SessionCommand) Execute(_ context.Context, args []string, ectx *ExecCon
 
 // ─── /permissions ─────────────────────────────────────────────────────────────
 
-type PermissionsCommand struct{}
+type PermissionsCommand struct{ BaseCommand }
 
-func (c *PermissionsCommand) Name() string        { return "permissions" }
-func (c *PermissionsCommand) Description() string { return "Show current tool permission settings." }
-func (c *PermissionsCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *PermissionsCommand) Name() string                  { return "permissions" }
+func (c *PermissionsCommand) Description() string           { return "Show current tool permission settings." }
+func (c *PermissionsCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *PermissionsCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *PermissionsCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (string, error) {
 	return "Use the HTTP API GET /api/v1/permissions to inspect permission rules.", nil
@@ -66,11 +70,13 @@ func (c *PermissionsCommand) Execute(_ context.Context, _ []string, _ *ExecConte
 
 // ─── /plugin ──────────────────────────────────────────────────────────────────
 
-type PluginCommand struct{}
+type PluginCommand struct{ BaseCommand }
 
-func (c *PluginCommand) Name() string        { return "plugin" }
-func (c *PluginCommand) Description() string { return "Manage plugins. Usage: /plugin list|load <path>|unload <name>" }
-func (c *PluginCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *PluginCommand) Name() string { return "plugin" }
+func (c *PluginCommand) Description() string {
+	return "Manage plugins. Usage: /plugin list|load <path>|unload <name>"
+}
+func (c *PluginCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *PluginCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *PluginCommand) Execute(_ context.Context, args []string, _ *ExecContext) (string, error) {
 	if len(args) == 0 || args[0] == "list" {
@@ -93,11 +99,11 @@ func (c *PluginCommand) Execute(_ context.Context, args []string, _ *ExecContext
 
 // ─── /skills ──────────────────────────────────────────────────────────────────
 
-type SkillsCommand struct{}
+type SkillsCommand struct{ BaseCommand }
 
-func (c *SkillsCommand) Name() string        { return "skills" }
-func (c *SkillsCommand) Description() string { return "List available skills." }
-func (c *SkillsCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *SkillsCommand) Name() string                  { return "skills" }
+func (c *SkillsCommand) Description() string           { return "List available skills." }
+func (c *SkillsCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *SkillsCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *SkillsCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (string, error) {
 	return "Use the HTTP API GET /api/v1/skills to list available skills.", nil
@@ -105,11 +111,11 @@ func (c *SkillsCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (
 
 // ─── /hatch ───────────────────────────────────────────────────────────────────
 
-type HatchCommand struct{}
+type HatchCommand struct{ BaseCommand }
 
-func (c *HatchCommand) Name() string        { return "hatch" }
-func (c *HatchCommand) Description() string { return "Hatch a new companion buddy." }
-func (c *HatchCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *HatchCommand) Name() string                  { return "hatch" }
+func (c *HatchCommand) Description() string           { return "Hatch a new companion buddy." }
+func (c *HatchCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *HatchCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *HatchCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (string, error) {
 	return "__hatch__", nil
@@ -117,11 +123,13 @@ func (c *HatchCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (s
 
 // ─── /auto-mode ───────────────────────────────────────────────────────────────
 
-type AutoModeCommand struct{}
+type AutoModeCommand struct{ BaseCommand }
 
-func (c *AutoModeCommand) Name() string        { return "auto-mode" }
-func (c *AutoModeCommand) Description() string { return "Toggle or show Auto Mode status. Usage: /auto-mode [on|off]" }
-func (c *AutoModeCommand) Type() CommandType   { return CommandTypeLocal }
+func (c *AutoModeCommand) Name() string { return "auto-mode" }
+func (c *AutoModeCommand) Description() string {
+	return "Toggle or show Auto Mode status. Usage: /auto-mode [on|off]"
+}
+func (c *AutoModeCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *AutoModeCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *AutoModeCommand) Execute(_ context.Context, args []string, ectx *ExecContext) (string, error) {
 	if len(args) == 0 {

@@ -19,8 +19,8 @@ func (t *TeamCreateTool) UserFacingName() string { return "TeamCreate" }
 func (t *TeamCreateTool) Description() string {
 	return "Create a named team of parallel sub-agents. Each agent receives an independent task and works concurrently."
 }
-func (t *TeamCreateTool) IsReadOnly() bool                  { return false }
-func (t *TeamCreateTool) IsConcurrencySafe() bool           { return false }
+func (t *TeamCreateTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (t *TeamCreateTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
 func (t *TeamCreateTool) MaxResultSizeChars() int           { return 4000 }
 func (t *TeamCreateTool) IsEnabled(_ *tool.UseContext) bool { return true }
 

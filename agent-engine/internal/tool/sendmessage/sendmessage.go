@@ -24,8 +24,8 @@ func (t *SendMessageTool) UserFacingName() string { return "send_message" }
 func (t *SendMessageTool) Description() string {
 	return "Send a message to the parent agent or another agent."
 }
-func (t *SendMessageTool) IsReadOnly() bool        { return true }
-func (t *SendMessageTool) IsConcurrencySafe() bool { return true }
+func (t *SendMessageTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *SendMessageTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
 func (t *SendMessageTool) MaxResultSizeChars() int { return 0 }
 func (t *SendMessageTool) IsEnabled(uctx *tool.UseContext) bool {
 	return uctx.AgentID != ""

@@ -26,11 +26,11 @@ func New() *NotebookEditTool { return &NotebookEditTool{} }
 func (t *NotebookEditTool) Name() string                      { return "NotebookEdit" }
 func (t *NotebookEditTool) UserFacingName() string            { return "notebook_edit" }
 func (t *NotebookEditTool) Description() string               { return "Edit a Jupyter notebook cell." }
-func (t *NotebookEditTool) IsReadOnly() bool                  { return false }
-func (t *NotebookEditTool) IsConcurrencySafe() bool           { return false }
+func (t *NotebookEditTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (t *NotebookEditTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
 func (t *NotebookEditTool) MaxResultSizeChars() int           { return 0 }
 func (t *NotebookEditTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *NotebookEditTool) IsDestructive() bool               { return true }
+func (t *NotebookEditTool) IsDestructive(_ json.RawMessage) bool               { return true }
 func (t *NotebookEditTool) ShouldDefer() bool                 { return true }
 func (t *NotebookEditTool) GetPath(input json.RawMessage) string {
 	var in Input

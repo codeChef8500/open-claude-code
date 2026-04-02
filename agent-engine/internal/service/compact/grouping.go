@@ -58,6 +58,110 @@ func isToolResultOnly(m *engine.Message) bool {
 	return true
 }
 
+// APIRound represents a single API round-trip: starting with either a user
+// message or an assistant message, plus any following tool-result user messages.
+// Aligned with claude-code-main groupMessagesByApiRound.
+type APIRound struct {
+	Messages []*engine.Message
+}
+
+// GroupMessagesByAPIRound groups messages into API rounds.  Each round begins
+// with a user or assistant message.  Immediately following user messages that
+// are pure tool-result carriers are attached to the preceding assistant round.
+func GroupMessagesByAPIRound(messages []*engine.Message) []APIRound {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	var rounds []APIRound
+	var current [](*engine.Message)
+
+	for _, m := range messages {
+		if m.Role == engine.RoleAssistant {
+			// Start a new round at each assistant message.
+			if len(current) > 0 {
+				rounds = append(rounds, APIRound{Messages: current})
+			}
+			current = []*engine.Message{m}
+		} else if m.Role == engine.RoleUser {
+			if len(current) > 0 && current[0].Role == engine.RoleAssistant && isToolResultOnly(m) {
+				// Attach tool-result user messages to the preceding assistant round.
+				current = append(current, m)
+			} else {
+				// User message that is not a tool result starts its own group.
+				if len(current) > 0 {
+					rounds = append(rounds, APIRound{Messages: current})
+				}
+				current = []*engine.Message{m}
+			}
+		} else {
+			// System or other messages attach to current group.
+			current = append(current, m)
+		}
+	}
+	if len(current) > 0 {
+		rounds = append(rounds, APIRound{Messages: current})
+	}
+	return rounds
+}
+
+// TruncateHeadForPTLRetry drops the oldest API-round groups from messages
+// until tokenGap is covered. This is the escape hatch for when the compact
+// request itself hits prompt-too-long. Returns nil when nothing can be dropped.
+func TruncateHeadForPTLRetry(messages []*engine.Message, tokenGap int) []*engine.Message {
+	groups := GroupMessagesByAPIRound(messages)
+	if len(groups) < 2 {
+		return nil
+	}
+
+	var dropCount int
+	if tokenGap > 0 {
+		acc := 0
+		for _, g := range groups {
+			acc += estimateTokensFromMessages(g.Messages)
+			dropCount++
+			if acc >= tokenGap {
+				break
+			}
+		}
+	} else {
+		// Fallback: drop 20% of groups.
+		dropCount = len(groups) / 5
+		if dropCount < 1 {
+			dropCount = 1
+		}
+	}
+
+	// Keep at least one group.
+	if dropCount >= len(groups) {
+		dropCount = len(groups) - 1
+	}
+	if dropCount < 1 {
+		return nil
+	}
+
+	// Flatten remaining groups.
+	var result []*engine.Message
+	for _, g := range groups[dropCount:] {
+		result = append(result, g.Messages...)
+	}
+
+	// If the first message is assistant, prepend a synthetic user marker
+	// so the API doesn't reject the sequence.
+	if len(result) > 0 && result[0].Role == engine.RoleAssistant {
+		marker := &engine.Message{
+			Role: engine.RoleUser,
+			Content: []*engine.ContentBlock{{
+				Type: engine.ContentTypeText,
+				Text: "[earlier conversation truncated for compaction retry]",
+			}},
+		}
+		result = append([]*engine.Message{marker}, result...)
+	}
+
+	return result
+}
+
 // SnipByGroups is a grouping-aware variant of Snip.  It removes whole
 // turn groups from the middle so that tool_use/tool_result pairs are
 // never split.

@@ -45,11 +45,11 @@ func New() *WebFetchTool {
 func (t *WebFetchTool) Name() string                      { return "WebFetch" }
 func (t *WebFetchTool) UserFacingName() string            { return "web_fetch" }
 func (t *WebFetchTool) Description() string               { return "Fetch the content of a web page." }
-func (t *WebFetchTool) IsReadOnly() bool                  { return true }
-func (t *WebFetchTool) IsConcurrencySafe() bool           { return true }
+func (t *WebFetchTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *WebFetchTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *WebFetchTool) MaxResultSizeChars() int           { return maxOutputChars }
 func (t *WebFetchTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *WebFetchTool) IsSearchOrRead() bool              { return true }
+func (t *WebFetchTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
 
 func (t *WebFetchTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

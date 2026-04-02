@@ -22,11 +22,11 @@ func (t *TaskListTool) UserFacingName() string { return "task_list" }
 func (t *TaskListTool) Description() string {
 	return "List all tracked tasks, optionally filtered by status or priority."
 }
-func (t *TaskListTool) IsReadOnly() bool                  { return true }
-func (t *TaskListTool) IsConcurrencySafe() bool           { return true }
+func (t *TaskListTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *TaskListTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *TaskListTool) MaxResultSizeChars() int           { return 16_000 }
 func (t *TaskListTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *TaskListTool) IsSearchOrRead() bool              { return true }
+func (t *TaskListTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
 
 func (t *TaskListTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

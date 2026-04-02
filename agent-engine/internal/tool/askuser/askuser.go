@@ -23,8 +23,8 @@ func (t *AskUserTool) UserFacingName() string { return "ask_user" }
 func (t *AskUserTool) Description() string {
 	return "Ask the user a question and wait for their response."
 }
-func (t *AskUserTool) IsReadOnly() bool                  { return true }
-func (t *AskUserTool) IsConcurrencySafe() bool           { return false }
+func (t *AskUserTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *AskUserTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
 func (t *AskUserTool) MaxResultSizeChars() int           { return 0 }
 func (t *AskUserTool) IsEnabled(_ *tool.UseContext) bool { return true }
 

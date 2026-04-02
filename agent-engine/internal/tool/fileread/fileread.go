@@ -34,11 +34,11 @@ func New() *FileReadTool { return &FileReadTool{} }
 func (t *FileReadTool) Name() string                      { return "Read" }
 func (t *FileReadTool) UserFacingName() string            { return "read" }
 func (t *FileReadTool) Description() string               { return "Read the contents of a file." }
-func (t *FileReadTool) IsReadOnly() bool                  { return true }
-func (t *FileReadTool) IsConcurrencySafe() bool           { return true }
+func (t *FileReadTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *FileReadTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *FileReadTool) MaxResultSizeChars() int           { return maxChars }
 func (t *FileReadTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *FileReadTool) IsSearchOrRead() bool              { return true }
+func (t *FileReadTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
 func (t *FileReadTool) GetPath(input json.RawMessage) string {
 	var in Input
 	if err := json.Unmarshal(input, &in); err != nil {

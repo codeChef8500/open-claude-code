@@ -69,6 +69,15 @@ func registerRoutes(r *chi.Mux) {
 		r.Post("/plugins", handleLoadPlugin)
 		r.Delete("/plugins/{name}", handleUnloadPlugin)
 
+		// Session search + stats
+		r.Get("/sessions/{id}/search", handleSearchSession)
+		r.Get("/sessions/{id}/stats", handleSessionStats)
+		r.Get("/search", handleSearchAllSessions)
+
+		// Config
+		r.Get("/config", handleGetConfig)
+		r.Put("/config", handleUpdateConfig)
+
 		// Buddy
 		r.Get("/buddy", handleGetBuddy)
 

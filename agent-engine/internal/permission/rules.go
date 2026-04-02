@@ -4,16 +4,6 @@ import (
 	"strings"
 )
 
-// RuleSource identifies where a permission rule originated.
-type RuleSource string
-
-const (
-	RuleSourceUser    RuleSource = "user"
-	RuleSourceProject RuleSource = "project"
-	RuleSourceAgent   RuleSource = "agent"
-	RuleSourceMCP     RuleSource = "mcp"
-)
-
 // PermissionRule is a single allow or deny entry in the permission config.
 type PermissionRule struct {
 	Source  RuleSource

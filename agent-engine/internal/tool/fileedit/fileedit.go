@@ -24,15 +24,15 @@ type FileEditTool struct{ tool.BaseTool }
 
 func New() *FileEditTool { return &FileEditTool{} }
 
-func (t *FileEditTool) Name() string                      { return "Edit" }
-func (t *FileEditTool) UserFacingName() string            { return "edit" }
-func (t *FileEditTool) Description() string               { return "Replace an exact string in a file." }
-func (t *FileEditTool) IsReadOnly() bool                  { return false }
-func (t *FileEditTool) IsConcurrencySafe() bool           { return false }
-func (t *FileEditTool) MaxResultSizeChars() int           { return 0 }
-func (t *FileEditTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *FileEditTool) IsDestructive() bool               { return true }
-func (t *FileEditTool) ShouldDefer() bool                 { return true }
+func (t *FileEditTool) Name() string                             { return "Edit" }
+func (t *FileEditTool) UserFacingName() string                   { return "edit" }
+func (t *FileEditTool) Description() string                      { return "Replace an exact string in a file." }
+func (t *FileEditTool) IsReadOnly(_ json.RawMessage) bool        { return false }
+func (t *FileEditTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
+func (t *FileEditTool) MaxResultSizeChars() int                  { return 0 }
+func (t *FileEditTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+func (t *FileEditTool) IsDestructive(_ json.RawMessage) bool     { return true }
+func (t *FileEditTool) ShouldDefer() bool                        { return true }
 func (t *FileEditTool) GetPath(input json.RawMessage) string {
 	var in Input
 	if err := json.Unmarshal(input, &in); err != nil {
@@ -45,6 +45,23 @@ func (t *FileEditTool) GetActivityDescription(input json.RawMessage) string {
 		return "Editing " + p
 	}
 	return "Editing file"
+}
+func (t *FileEditTool) GetToolUseSummary(input json.RawMessage) string {
+	return t.GetActivityDescription(input)
+}
+func (t *FileEditTool) ToAutoClassifierInput(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	return in.FilePath + " " + in.OldString
+}
+func (t *FileEditTool) InputsEquivalent(a, b json.RawMessage) bool {
+	var ia, ib Input
+	if json.Unmarshal(a, &ia) != nil || json.Unmarshal(b, &ib) != nil {
+		return false
+	}
+	return ia.FilePath == ib.FilePath && ia.OldString == ib.OldString && ia.NewString == ib.NewString
 }
 
 func (t *FileEditTool) InputSchema() json.RawMessage {

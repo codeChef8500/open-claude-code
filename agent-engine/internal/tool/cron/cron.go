@@ -60,8 +60,8 @@ func New() *ScheduleCronTool { return &ScheduleCronTool{} }
 func (t *ScheduleCronTool) Name() string                      { return "ScheduleCron" }
 func (t *ScheduleCronTool) UserFacingName() string            { return "schedule_cron" }
 func (t *ScheduleCronTool) Description() string               { return "Schedule, remove, or list cron jobs." }
-func (t *ScheduleCronTool) IsReadOnly() bool                  { return false }
-func (t *ScheduleCronTool) IsConcurrencySafe() bool           { return false }
+func (t *ScheduleCronTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (t *ScheduleCronTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
 func (t *ScheduleCronTool) MaxResultSizeChars() int           { return 10_000 }
 func (t *ScheduleCronTool) IsEnabled(_ *tool.UseContext) bool { return true }
 

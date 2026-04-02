@@ -21,8 +21,8 @@ func (t *EnterPlanModeTool) UserFacingName() string { return "EnterPlanMode" }
 func (t *EnterPlanModeTool) Description() string {
 	return "Enter plan mode: pause execution and present a structured plan for user review and approval before proceeding."
 }
-func (t *EnterPlanModeTool) IsReadOnly() bool                  { return true }
-func (t *EnterPlanModeTool) IsConcurrencySafe() bool           { return true }
+func (t *EnterPlanModeTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *EnterPlanModeTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *EnterPlanModeTool) MaxResultSizeChars() int           { return 1000 }
 func (t *EnterPlanModeTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
@@ -76,8 +76,8 @@ func (t *ExitPlanModeTool) UserFacingName() string { return "ExitPlanMode" }
 func (t *ExitPlanModeTool) Description() string {
 	return "Exit plan mode and resume normal tool execution."
 }
-func (t *ExitPlanModeTool) IsReadOnly() bool                  { return true }
-func (t *ExitPlanModeTool) IsConcurrencySafe() bool           { return true }
+func (t *ExitPlanModeTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *ExitPlanModeTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *ExitPlanModeTool) MaxResultSizeChars() int           { return 200 }
 func (t *ExitPlanModeTool) IsEnabled(_ *tool.UseContext) bool { return true }
 

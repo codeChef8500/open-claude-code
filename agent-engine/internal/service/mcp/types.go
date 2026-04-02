@@ -141,16 +141,156 @@ type ReadResourceResult struct {
 // ── Transport constants ────────────────────────────────────────────────────
 
 const (
-	TransportStdio = "stdio"
-	TransportSSE   = "sse"
+	TransportStdio     = "stdio"
+	TransportSSE       = "sse"
+	TransportSSEIDE    = "sse-ide"
+	TransportHTTP      = "http"
+	TransportWebSocket = "ws"
+	TransportSDK       = "sdk"
 
 	ProtocolVersion = "2024-11-05"
 
-	MethodInitialize    = "initialize"
-	MethodInitialized   = "notifications/initialized"
-	MethodListTools     = "tools/list"
-	MethodCallTool      = "tools/call"
-	MethodListResources = "resources/list"
-	MethodReadResource  = "resources/read"
-	MethodListPrompts   = "prompts/list"
+	MethodInitialize            = "initialize"
+	MethodInitialized           = "notifications/initialized"
+	MethodListTools             = "tools/list"
+	MethodCallTool              = "tools/call"
+	MethodListResources         = "resources/list"
+	MethodReadResource          = "resources/read"
+	MethodListPrompts           = "prompts/list"
+	MethodGetPrompt             = "prompts/get"
+	MethodSamplingCreateMessage = "sampling/createMessage"
+	MethodToolsListChanged      = "notifications/tools/list_changed"
+	MethodResourcesListChanged  = "notifications/resources/list_changed"
+	MethodRootsList             = "roots/list"
 )
+
+// ── Limits & defaults ──────────────────────────────────────────────────────
+
+const (
+	// MaxMCPDescriptionLength caps tool descriptions sent to the model.
+	MaxMCPDescriptionLength = 2048
+
+	// DefaultMCPToolTimeoutSec is the default timeout for MCP tool calls (~27.8 hours).
+	DefaultMCPToolTimeoutSec = 100_000
+
+	// DefaultMCPConnectionTimeoutSec is the default connection timeout.
+	DefaultMCPConnectionTimeoutSec = 30
+
+	// DefaultMCPRequestTimeoutSec is the default per-request timeout.
+	DefaultMCPRequestTimeoutSec = 60
+
+	// MaxMCPToolResultChars caps tool result text before truncation.
+	MaxMCPToolResultChars = 100_000
+)
+
+// ── Connection state ───────────────────────────────────────────────────────
+
+// ConnectionState represents the lifecycle state of an MCP server connection.
+type ConnectionState string
+
+const (
+	StateConnected ConnectionState = "connected"
+	StateFailed    ConnectionState = "failed"
+	StateNeedsAuth ConnectionState = "needs-auth"
+	StatePending   ConnectionState = "pending"
+	StateDisabled  ConnectionState = "disabled"
+)
+
+// MCPServerConnection describes the full state of a server connection.
+type MCPServerConnection struct {
+	Name         string          `json:"name"`
+	State        ConnectionState `json:"type"`
+	Config       ServerConfig    `json:"config"`
+	ServerInfo   *ServerInfo     `json:"serverInfo,omitempty"`
+	Capabilities *Caps           `json:"capabilities,omitempty"`
+	Error        string          `json:"error,omitempty"`
+	Instructions string          `json:"instructions,omitempty"`
+	// ReconnectAttempt tracks the current reconnect iteration (Pending state).
+	ReconnectAttempt     int `json:"reconnectAttempt,omitempty"`
+	MaxReconnectAttempts int `json:"maxReconnectAttempts,omitempty"`
+}
+
+// ── Config scoping ─────────────────────────────────────────────────────────
+
+// ConfigScope identifies where an MCP server config was loaded from.
+type ConfigScope string
+
+const (
+	ScopeLocal      ConfigScope = "local"
+	ScopeUser       ConfigScope = "user"
+	ScopeProject    ConfigScope = "project"
+	ScopeDynamic    ConfigScope = "dynamic"
+	ScopeEnterprise ConfigScope = "enterprise"
+)
+
+// ScopedServerConfig is a ServerConfig annotated with its origin scope.
+type ScopedServerConfig struct {
+	ServerConfig
+	Scope ConfigScope `json:"scope"`
+}
+
+// ── Prompts ────────────────────────────────────────────────────────────────
+
+// MCPPrompt describes a prompt template exposed by an MCP server.
+type MCPPrompt struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Arguments   json.RawMessage `json:"arguments,omitempty"`
+}
+
+// ListPromptsResult is the response to prompts/list.
+type ListPromptsResult struct {
+	Prompts    []MCPPrompt `json:"prompts"`
+	NextCursor string      `json:"nextCursor,omitempty"`
+}
+
+// GetPromptParams are the params for prompts/get.
+type GetPromptParams struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
+// PromptMessage is a single message in a prompt get result.
+type PromptMessage struct {
+	Role    string      `json:"role"`
+	Content ContentItem `json:"content"`
+}
+
+// GetPromptResult is the response to prompts/get.
+type GetPromptResult struct {
+	Description string          `json:"description,omitempty"`
+	Messages    []PromptMessage `json:"messages"`
+}
+
+// ── CLI state serialization ────────────────────────────────────────────────
+
+// SerializedTool is a tool descriptor for CLI state exchange.
+type SerializedTool struct {
+	Name             string          `json:"name"`
+	Description      string          `json:"description"`
+	InputJSONSchema  json.RawMessage `json:"inputJSONSchema,omitempty"`
+	IsMcp            bool            `json:"isMcp,omitempty"`
+	OriginalToolName string          `json:"originalToolName,omitempty"`
+}
+
+// SerializedClient is a client descriptor for CLI state exchange.
+type SerializedClient struct {
+	Name         string          `json:"name"`
+	Type         ConnectionState `json:"type"`
+	Capabilities *Caps           `json:"capabilities,omitempty"`
+}
+
+// ServerResource is a resource annotated with its originating server.
+type ServerResource struct {
+	MCPResource
+	Server string `json:"server"`
+}
+
+// MCPCliState is the full MCP state snapshot for CLI exchange.
+type MCPCliState struct {
+	Clients         []SerializedClient          `json:"clients"`
+	Configs         map[string]ServerConfig     `json:"configs"`
+	Tools           []SerializedTool            `json:"tools"`
+	Resources       map[string][]ServerResource `json:"resources"`
+	NormalizedNames map[string]string           `json:"normalizedNames,omitempty"`
+}

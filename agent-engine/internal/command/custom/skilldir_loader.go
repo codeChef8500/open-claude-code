@@ -46,6 +46,7 @@ func LoadFromSkillDir(workDir string) []command.Command {
 
 // skillPromptCommand is a PromptCommand generated from a Markdown skill file.
 type skillPromptCommand struct {
+	command.BaseCommand
 	name    string
 	content string
 }

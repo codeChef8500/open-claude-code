@@ -33,11 +33,11 @@ func (t *ToolSearchTool) UserFacingName() string { return "tool_search" }
 func (t *ToolSearchTool) Description() string {
 	return "Search for available tools by name or description keyword."
 }
-func (t *ToolSearchTool) IsReadOnly() bool                  { return true }
-func (t *ToolSearchTool) IsConcurrencySafe() bool           { return true }
+func (t *ToolSearchTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
+func (t *ToolSearchTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *ToolSearchTool) MaxResultSizeChars() int           { return 16_000 }
 func (t *ToolSearchTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *ToolSearchTool) IsSearchOrRead() bool              { return true }
+func (t *ToolSearchTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
 func (t *ToolSearchTool) AlwaysLoad() bool                  { return true }
 
 func (t *ToolSearchTool) InputSchema() json.RawMessage {

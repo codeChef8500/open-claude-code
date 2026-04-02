@@ -30,8 +30,8 @@ func New() *TodoWriteTool { return &TodoWriteTool{} }
 func (t *TodoWriteTool) Name() string                      { return "TodoWrite" }
 func (t *TodoWriteTool) UserFacingName() string            { return "todo_write" }
 func (t *TodoWriteTool) Description() string               { return "Create or update a structured todo list." }
-func (t *TodoWriteTool) IsReadOnly() bool                  { return false }
-func (t *TodoWriteTool) IsConcurrencySafe() bool           { return false }
+func (t *TodoWriteTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (t *TodoWriteTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
 func (t *TodoWriteTool) MaxResultSizeChars() int           { return 0 }
 func (t *TodoWriteTool) IsEnabled(_ *tool.UseContext) bool { return true }
 

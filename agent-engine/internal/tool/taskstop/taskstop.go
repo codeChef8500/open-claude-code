@@ -22,8 +22,8 @@ func (t *TaskStopTool) UserFacingName() string { return "task_stop" }
 func (t *TaskStopTool) Description() string {
 	return "Signal that the current task is complete and stop the agent loop."
 }
-func (t *TaskStopTool) IsReadOnly() bool        { return true }
-func (t *TaskStopTool) IsConcurrencySafe() bool { return false }
+func (t *TaskStopTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *TaskStopTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
 func (t *TaskStopTool) MaxResultSizeChars() int { return 0 }
 func (t *TaskStopTool) IsEnabled(uctx *tool.UseContext) bool {
 	return uctx.AgentID != ""

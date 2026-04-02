@@ -26,8 +26,8 @@ func (t *TaskUpdateTool) UserFacingName() string { return "task_update" }
 func (t *TaskUpdateTool) Description() string {
 	return "Update a task's status, title, description, or priority."
 }
-func (t *TaskUpdateTool) IsReadOnly() bool                  { return false }
-func (t *TaskUpdateTool) IsConcurrencySafe() bool           { return true }
+func (t *TaskUpdateTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
+func (t *TaskUpdateTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
 func (t *TaskUpdateTool) MaxResultSizeChars() int           { return 2048 }
 func (t *TaskUpdateTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
