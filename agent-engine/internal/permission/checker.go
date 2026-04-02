@@ -9,11 +9,16 @@ import (
 
 // Checker evaluates permission requests against the configured rules and mode.
 type Checker struct {
-	mode         Mode
-	allowRules   []Rule
-	denyRules    []Rule
-	allowedDirs  []string
-	deniedCmds   []string
+	mode        Mode
+	allowRules  []Rule
+	denyRules   []Rule
+	allowedDirs []string
+	deniedCmds  []string
+	// failClosed causes the checker to deny any operation not explicitly allowed
+	// when mode == ModeDefault (instead of the previous open-by-default behavior).
+	failClosed bool
+	// denials accumulates denial records for audit and diagnostics.
+	denials []DenialRecord
 	// askFn is called when the user must confirm an operation.
 	askFn func(ctx context.Context, tool, desc string) (bool, error)
 }
@@ -29,6 +34,26 @@ func NewChecker(mode Mode, allow, deny []Rule, allowedDirs, deniedCmds []string)
 	}
 }
 
+// SetFailClosed enables fail-closed mode: any tool not explicitly allowed by
+// an allow rule is denied in ModeDefault.
+func (c *Checker) SetFailClosed(v bool) { c.failClosed = v }
+
+// Denials returns a snapshot of all denial records accumulated so far.
+func (c *Checker) Denials() []DenialRecord {
+	out := make([]DenialRecord, len(c.denials))
+	copy(out, c.denials)
+	return out
+}
+
+// recordDenial appends a denial record.
+func (c *Checker) recordDenial(req CheckRequest, reason string) {
+	c.denials = append(c.denials, DenialRecord{
+		ToolName: req.ToolName,
+		Reason:   reason,
+		Input:    req.ToolInput,
+	})
+}
+
 // SetAskFunc sets the callback used when user confirmation is required.
 func (c *Checker) SetAskFunc(fn func(ctx context.Context, tool, desc string) (bool, error)) {
 	c.askFn = fn
@@ -39,34 +64,48 @@ func (c *Checker) SetAskFunc(fn func(ctx context.Context, tool, desc string) (bo
 func (c *Checker) Check(ctx context.Context, req CheckRequest) error {
 	// 1. Hard deny rules always win.
 	if c.matchesDenyRules(req) {
-		return fmt.Errorf("tool %q is denied by policy", req.ToolName)
+		reason := fmt.Sprintf("tool %q is denied by policy", req.ToolName)
+		c.recordDenial(req, reason)
+		return fmt.Errorf("%s", reason)
 	}
 
-	// 2. Hard allow rules short-circuit remaining checks.
+	// 2. Dangerous shell pattern check (fail-hard regardless of rules).
+	if err := c.checkDangerousPatterns(req); err != nil {
+		c.recordDenial(req, err.Error())
+		return err
+	}
+
+	// 3. Hard allow rules short-circuit remaining checks.
 	if c.matchesAllowRules(req) {
 		return nil
 	}
 
-	// 3. Bypass mode — allow everything not hard-denied.
+	// 4. Bypass mode — allow everything not hard-denied.
 	if c.mode == ModeBypassAll {
 		return nil
 	}
 
-	// 4. File system safety check for write tools.
+	// 5. File system safety check: path traversal + allowed-dir constraint.
 	if err := c.checkFileSystemSafety(req); err != nil {
+		c.recordDenial(req, err.Error())
 		return err
 	}
 
-	// 5. Shell command denylist.
+	// 6. Shell command denylist.
 	if err := c.checkDeniedCommands(req); err != nil {
+		c.recordDenial(req, err.Error())
 		return err
 	}
 
-	// 6. Auto Mode — LLM classifier (handled externally; if result is
-	//    SoftDeny the caller wraps with a descriptive error).
+	// 7. Auto Mode — LLM classifier handled externally.
 
-	// 7. Default mode: read-only operations are auto-approved;
-	//    write operations require user confirmation.
+	// 8. Fail-closed: deny everything not explicitly allowed.
+	if c.failClosed && c.mode == ModeDefault {
+		reason := fmt.Sprintf("tool %q not explicitly allowed (fail-closed mode)", req.ToolName)
+		c.recordDenial(req, reason)
+		return fmt.Errorf("%s", reason)
+	}
+
 	return nil
 }
 
@@ -89,25 +128,53 @@ func (c *Checker) matchesAllowRules(req CheckRequest) bool {
 }
 
 func (c *Checker) checkFileSystemSafety(req CheckRequest) error {
-	if len(c.allowedDirs) == 0 {
-		return nil
-	}
 	// Extract path from tool input if available.
 	path := extractPath(req.ToolInput)
 	if path == "" {
 		return nil
 	}
+
+	// Block path traversal sequences before resolving.
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path %q contains traversal sequence '..'", path)
+	}
+
+	if len(c.allowedDirs) == 0 {
+		return nil
+	}
+
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil
 	}
+	// Ensure the resolved path is within an allowed directory.
 	for _, dir := range c.allowedDirs {
 		absDir, _ := filepath.Abs(dir)
-		if strings.HasPrefix(absPath, absDir) {
+		// Add separator to prevent prefix-matching a sibling dir.
+		if absPath == absDir || strings.HasPrefix(absPath, absDir+string(filepath.Separator)) {
 			return nil
 		}
 	}
 	return fmt.Errorf("path %q is outside of allowed directories", path)
+}
+
+// checkDangerousPatterns rejects shell commands that contain well-known
+// destructive patterns, regardless of other allow rules.
+func (c *Checker) checkDangerousPatterns(req CheckRequest) error {
+	if req.ToolName != "bash" && req.ToolName != "Bash" {
+		return nil
+	}
+	cmd := extractCommand(req.ToolInput)
+	if cmd == "" {
+		return nil
+	}
+	lower := strings.ToLower(cmd)
+	for _, pat := range DangerousShellPatterns {
+		if strings.Contains(lower, strings.ToLower(pat)) {
+			return fmt.Errorf("command contains dangerous pattern %q", pat)
+		}
+	}
+	return nil
 }
 
 func (c *Checker) checkDeniedCommands(req CheckRequest) error {

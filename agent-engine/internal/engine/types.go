@@ -6,30 +6,30 @@ import "time"
 type StreamEventType string
 
 const (
-	EventTextDelta      StreamEventType = "text_delta"
-	EventTextComplete   StreamEventType = "text_complete"
-	EventToolUse        StreamEventType = "tool_use"
-	EventToolResult     StreamEventType = "tool_result"
-	EventThinking       StreamEventType = "thinking"
-	EventUsage          StreamEventType = "usage"
-	EventError          StreamEventType = "error"
-	EventDone           StreamEventType = "done"
-	EventSystemMessage  StreamEventType = "system_message"
+	EventTextDelta     StreamEventType = "text_delta"
+	EventTextComplete  StreamEventType = "text_complete"
+	EventToolUse       StreamEventType = "tool_use"
+	EventToolResult    StreamEventType = "tool_result"
+	EventThinking      StreamEventType = "thinking"
+	EventUsage         StreamEventType = "usage"
+	EventError         StreamEventType = "error"
+	EventDone          StreamEventType = "done"
+	EventSystemMessage StreamEventType = "system_message"
 )
 
 // StreamEvent is produced by the engine and consumed by SDK callers or HTTP SSE.
 type StreamEvent struct {
-	Type       StreamEventType `json:"type"`
-	Text       string          `json:"text,omitempty"`
-	ToolName   string          `json:"tool_name,omitempty"`
-	ToolID     string          `json:"tool_id,omitempty"`
-	ToolInput  interface{}     `json:"tool_input,omitempty"`
-	Result     string          `json:"result,omitempty"`
-	IsError    bool            `json:"is_error,omitempty"`
-	Thinking   string          `json:"thinking,omitempty"`
-	Usage      *UsageStats     `json:"usage,omitempty"`
-	Error      string          `json:"error,omitempty"`
-	SessionID  string          `json:"session_id,omitempty"`
+	Type      StreamEventType `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ToolName  string          `json:"tool_name,omitempty"`
+	ToolID    string          `json:"tool_id,omitempty"`
+	ToolInput interface{}     `json:"tool_input,omitempty"`
+	Result    string          `json:"result,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
+	Thinking  string          `json:"thinking,omitempty"`
+	Usage     *UsageStats     `json:"usage,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	SessionID string          `json:"session_id,omitempty"`
 }
 
 // UsageStats carries token and cost information from an LLM response.
@@ -55,12 +55,12 @@ const (
 type ContentType string
 
 const (
-	ContentTypeText        ContentType = "text"
-	ContentTypeImage       ContentType = "image"
-	ContentTypeToolUse     ContentType = "tool_use"
-	ContentTypeToolResult  ContentType = "tool_result"
-	ContentTypeThinking    ContentType = "thinking"
-	ContentTypeDocument    ContentType = "document"
+	ContentTypeText       ContentType = "text"
+	ContentTypeImage      ContentType = "image"
+	ContentTypeToolUse    ContentType = "tool_use"
+	ContentTypeToolResult ContentType = "tool_result"
+	ContentTypeThinking   ContentType = "thinking"
+	ContentTypeDocument   ContentType = "document"
 )
 
 // ContentBlock is a single block within a message.
@@ -81,8 +81,8 @@ type ContentBlock struct {
 	Input     interface{} `json:"input,omitempty"`
 
 	// Tool result
-	Content   []*ContentBlock `json:"content,omitempty"`
-	IsError   bool            `json:"is_error,omitempty"`
+	Content []*ContentBlock `json:"content,omitempty"`
+	IsError bool            `json:"is_error,omitempty"`
 }
 
 // Message is the canonical internal representation of a conversation turn.
@@ -131,9 +131,9 @@ type EngineConfig struct {
 	SessionID string `json:"session_id,omitempty"`
 
 	// Feature flags
-	AutoMode       bool   `json:"auto_mode,omitempty"`
-	FastMode       bool   `json:"fast_mode,omitempty"`
-	MaxCostUSD     float64 `json:"max_cost_usd,omitempty"`
+	AutoMode   bool    `json:"auto_mode,omitempty"`
+	FastMode   bool    `json:"fast_mode,omitempty"`
+	MaxCostUSD float64 `json:"max_cost_usd,omitempty"`
 
 	// System prompt overrides
 	CustomSystemPrompt string `json:"custom_system_prompt,omitempty"`
@@ -149,17 +149,18 @@ type QueryParams struct {
 	Text   string
 	Images []string // base64-encoded images
 
-	// Optional per-request overrides.
-	Model     string
-	MaxTokens int
+	// Config carries per-query tuning knobs (overrides engine-level EngineConfig).
+	Config QueryConfig
+	// Deps carries optional per-query dependency overrides.
+	Deps QueryDeps
 }
 
 // SessionState holds mutable per-session state shared across the query loop.
 type SessionState struct {
-	SessionID  string
-	WorkDir    string
-	TotalCost  float64
-	TurnCount  int
-	Messages   []*Message
-	Compacted  bool
+	SessionID string
+	WorkDir   string
+	TotalCost float64
+	TurnCount int
+	Messages  []*Message
+	Compacted bool
 }

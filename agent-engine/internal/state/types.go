@@ -24,6 +24,33 @@ type AppState struct {
 	// AutoMode enabled.
 	AutoMode bool
 
+	// PermissionMode is "default", "plan", "bypassPermissions", or "auto".
+	PermissionMode string
+
+	// PlanModeActive is true when the session is in plan-only mode.
+	PlanModeActive bool
+
+	// MCPConnected is true when at least one MCP server is connected.
+	MCPConnected bool
+
+	// ActiveMCPServers is the list of connected MCP server names.
+	ActiveMCPServers []string
+
+	// TokenBudget tracks the current context window usage fraction (0–1).
+	TokenBudgetFraction float64
+
+	// InputTokens is the most recent cumulative input token count.
+	InputTokens int
+
+	// OutputTokens is the most recent cumulative output token count.
+	OutputTokens int
+
+	// ActiveToolName is the tool currently being executed (empty if idle).
+	ActiveToolName string
+
+	// IsStreaming is true while the engine is streaming a response.
+	IsStreaming bool
+
 	// Listeners notified on any state mutation.
 	listeners []func()
 }

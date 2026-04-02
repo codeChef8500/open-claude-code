@@ -14,17 +14,20 @@ type Input struct {
 	Milliseconds int `json:"milliseconds"`
 }
 
-type SleepTool struct{}
+type SleepTool struct{ tool.BaseTool }
 
 func New() *SleepTool { return &SleepTool{} }
 
-func (t *SleepTool) Name() string            { return "Sleep" }
-func (t *SleepTool) UserFacingName() string  { return "sleep" }
-func (t *SleepTool) Description() string     { return "Sleep for the specified number of milliseconds." }
-func (t *SleepTool) IsReadOnly() bool        { return true }
-func (t *SleepTool) IsConcurrencySafe() bool { return true }
-func (t *SleepTool) MaxResultSizeChars() int { return 0 }
+func (t *SleepTool) Name() string                      { return "Sleep" }
+func (t *SleepTool) UserFacingName() string            { return "sleep" }
+func (t *SleepTool) Description() string               { return "Sleep for the specified number of milliseconds." }
+func (t *SleepTool) IsReadOnly() bool                  { return true }
+func (t *SleepTool) IsConcurrencySafe() bool           { return true }
+func (t *SleepTool) MaxResultSizeChars() int           { return 0 }
 func (t *SleepTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *SleepTool) InterruptBehavior() engine.InterruptBehavior {
+	return engine.InterruptBehaviorStop
+}
 
 func (t *SleepTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

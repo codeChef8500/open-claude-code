@@ -16,17 +16,32 @@ type Input struct {
 	Content  string `json:"content"`
 }
 
-type FileWriteTool struct{}
+type FileWriteTool struct{ tool.BaseTool }
 
 func New() *FileWriteTool { return &FileWriteTool{} }
 
-func (t *FileWriteTool) Name() string            { return "Write" }
-func (t *FileWriteTool) UserFacingName() string  { return "write" }
-func (t *FileWriteTool) Description() string     { return "Create or overwrite a file with new content." }
-func (t *FileWriteTool) IsReadOnly() bool        { return false }
-func (t *FileWriteTool) IsConcurrencySafe() bool { return false }
-func (t *FileWriteTool) MaxResultSizeChars() int { return 0 }
+func (t *FileWriteTool) Name() string                      { return "Write" }
+func (t *FileWriteTool) UserFacingName() string            { return "write" }
+func (t *FileWriteTool) Description() string               { return "Create or overwrite a file with new content." }
+func (t *FileWriteTool) IsReadOnly() bool                  { return false }
+func (t *FileWriteTool) IsConcurrencySafe() bool           { return false }
+func (t *FileWriteTool) MaxResultSizeChars() int           { return 0 }
 func (t *FileWriteTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *FileWriteTool) IsDestructive() bool               { return true }
+func (t *FileWriteTool) ShouldDefer() bool                 { return true }
+func (t *FileWriteTool) GetPath(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	return in.FilePath
+}
+func (t *FileWriteTool) GetActivityDescription(input json.RawMessage) string {
+	if p := t.GetPath(input); p != "" {
+		return "Writing " + p
+	}
+	return "Writing file"
+}
 
 func (t *FileWriteTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

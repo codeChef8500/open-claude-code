@@ -19,17 +19,26 @@ type Input struct {
 	EditMode     string `json:"edit_mode,omitempty"` // "replace" | "insert"
 }
 
-type NotebookEditTool struct{}
+type NotebookEditTool struct{ tool.BaseTool }
 
 func New() *NotebookEditTool { return &NotebookEditTool{} }
 
-func (t *NotebookEditTool) Name() string            { return "NotebookEdit" }
-func (t *NotebookEditTool) UserFacingName() string  { return "notebook_edit" }
-func (t *NotebookEditTool) Description() string     { return "Edit a Jupyter notebook cell." }
-func (t *NotebookEditTool) IsReadOnly() bool        { return false }
-func (t *NotebookEditTool) IsConcurrencySafe() bool { return false }
-func (t *NotebookEditTool) MaxResultSizeChars() int { return 0 }
+func (t *NotebookEditTool) Name() string                      { return "NotebookEdit" }
+func (t *NotebookEditTool) UserFacingName() string            { return "notebook_edit" }
+func (t *NotebookEditTool) Description() string               { return "Edit a Jupyter notebook cell." }
+func (t *NotebookEditTool) IsReadOnly() bool                  { return false }
+func (t *NotebookEditTool) IsConcurrencySafe() bool           { return false }
+func (t *NotebookEditTool) MaxResultSizeChars() int           { return 0 }
 func (t *NotebookEditTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *NotebookEditTool) IsDestructive() bool               { return true }
+func (t *NotebookEditTool) ShouldDefer() bool                 { return true }
+func (t *NotebookEditTool) GetPath(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	return in.NotebookPath
+}
 
 func (t *NotebookEditTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

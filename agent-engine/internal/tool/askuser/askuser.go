@@ -14,16 +14,18 @@ type Input struct {
 	Options  []string `json:"options,omitempty"`
 }
 
-type AskUserTool struct{}
+type AskUserTool struct{ tool.BaseTool }
 
 func New() *AskUserTool { return &AskUserTool{} }
 
-func (t *AskUserTool) Name() string            { return "AskUser" }
-func (t *AskUserTool) UserFacingName() string  { return "ask_user" }
-func (t *AskUserTool) Description() string     { return "Ask the user a question and wait for their response." }
-func (t *AskUserTool) IsReadOnly() bool        { return true }
-func (t *AskUserTool) IsConcurrencySafe() bool { return false }
-func (t *AskUserTool) MaxResultSizeChars() int { return 0 }
+func (t *AskUserTool) Name() string           { return "AskUser" }
+func (t *AskUserTool) UserFacingName() string { return "ask_user" }
+func (t *AskUserTool) Description() string {
+	return "Ask the user a question and wait for their response."
+}
+func (t *AskUserTool) IsReadOnly() bool                  { return true }
+func (t *AskUserTool) IsConcurrencySafe() bool           { return false }
+func (t *AskUserTool) MaxResultSizeChars() int           { return 0 }
 func (t *AskUserTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
 func (t *AskUserTool) InputSchema() json.RawMessage {

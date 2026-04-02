@@ -22,22 +22,36 @@ var (
 )
 
 type Input struct {
-	FilePath  string `json:"file_path"`
-	Offset    int    `json:"offset,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
+	FilePath string `json:"file_path"`
+	Offset   int    `json:"offset,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
 }
 
-type FileReadTool struct{}
+type FileReadTool struct{ tool.BaseTool }
 
 func New() *FileReadTool { return &FileReadTool{} }
 
-func (t *FileReadTool) Name() string            { return "Read" }
-func (t *FileReadTool) UserFacingName() string  { return "read" }
-func (t *FileReadTool) Description() string     { return "Read the contents of a file." }
-func (t *FileReadTool) IsReadOnly() bool        { return true }
-func (t *FileReadTool) IsConcurrencySafe() bool { return true }
-func (t *FileReadTool) MaxResultSizeChars() int { return maxChars }
+func (t *FileReadTool) Name() string                      { return "Read" }
+func (t *FileReadTool) UserFacingName() string            { return "read" }
+func (t *FileReadTool) Description() string               { return "Read the contents of a file." }
+func (t *FileReadTool) IsReadOnly() bool                  { return true }
+func (t *FileReadTool) IsConcurrencySafe() bool           { return true }
+func (t *FileReadTool) MaxResultSizeChars() int           { return maxChars }
 func (t *FileReadTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *FileReadTool) IsSearchOrRead() bool              { return true }
+func (t *FileReadTool) GetPath(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	return in.FilePath
+}
+func (t *FileReadTool) GetActivityDescription(input json.RawMessage) string {
+	if p := t.GetPath(input); p != "" {
+		return "Reading " + p
+	}
+	return "Reading file"
+}
 
 func (t *FileReadTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

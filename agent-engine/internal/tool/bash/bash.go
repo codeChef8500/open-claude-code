@@ -26,17 +26,36 @@ type Input struct {
 }
 
 // BashTool executes shell commands.
-type BashTool struct{}
+type BashTool struct{ tool.BaseTool }
 
 func New() *BashTool { return &BashTool{} }
 
-func (t *BashTool) Name() string            { return "Bash" }
-func (t *BashTool) UserFacingName() string  { return "bash" }
-func (t *BashTool) Description() string     { return "Execute a shell command and return its output." }
-func (t *BashTool) IsReadOnly() bool        { return false }
-func (t *BashTool) IsConcurrencySafe() bool { return false }
-func (t *BashTool) MaxResultSizeChars() int { return maxOutputChars }
+func (t *BashTool) Name() string                         { return "Bash" }
+func (t *BashTool) UserFacingName() string               { return "bash" }
+func (t *BashTool) Description() string                  { return "Execute a shell command and return its output." }
+func (t *BashTool) IsReadOnly() bool                     { return false }
+func (t *BashTool) IsConcurrencySafe() bool              { return false }
+func (t *BashTool) MaxResultSizeChars() int              { return maxOutputChars }
 func (t *BashTool) IsEnabled(uctx *tool.UseContext) bool { return true }
+func (t *BashTool) IsDestructive() bool                  { return true }
+func (t *BashTool) ShouldDefer() bool                    { return true }
+func (t *BashTool) InterruptBehavior() engine.InterruptBehavior {
+	return engine.InterruptBehaviorReturn
+}
+func (t *BashTool) GetActivityDescription(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil || in.Command == "" {
+		return "Running bash command"
+	}
+	cmd := in.Command
+	if len(cmd) > 60 {
+		cmd = cmd[:60] + "…"
+	}
+	return "Running: " + cmd
+}
+func (t *BashTool) GetToolUseSummary(input json.RawMessage) string {
+	return t.GetActivityDescription(input)
+}
 
 func (t *BashTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

@@ -12,18 +12,18 @@ import (
 
 // EnterPlanModeTool signals that the agent should enter plan mode,
 // pausing tool execution and presenting a plan for user approval.
-type EnterPlanModeTool struct{}
+type EnterPlanModeTool struct{ tool.BaseTool }
 
 func NewEnterPlanMode() *EnterPlanModeTool { return &EnterPlanModeTool{} }
 
-func (t *EnterPlanModeTool) Name() string            { return "enter_plan_mode" }
-func (t *EnterPlanModeTool) UserFacingName() string  { return "EnterPlanMode" }
+func (t *EnterPlanModeTool) Name() string           { return "enter_plan_mode" }
+func (t *EnterPlanModeTool) UserFacingName() string { return "EnterPlanMode" }
 func (t *EnterPlanModeTool) Description() string {
 	return "Enter plan mode: pause execution and present a structured plan for user review and approval before proceeding."
 }
-func (t *EnterPlanModeTool) IsReadOnly() bool        { return true }
-func (t *EnterPlanModeTool) IsConcurrencySafe() bool { return true }
-func (t *EnterPlanModeTool) MaxResultSizeChars() int { return 1000 }
+func (t *EnterPlanModeTool) IsReadOnly() bool                  { return true }
+func (t *EnterPlanModeTool) IsConcurrencySafe() bool           { return true }
+func (t *EnterPlanModeTool) MaxResultSizeChars() int           { return 1000 }
 func (t *EnterPlanModeTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
 func (t *EnterPlanModeTool) InputSchema() json.RawMessage {
@@ -67,18 +67,18 @@ func (t *EnterPlanModeTool) Call(_ context.Context, input json.RawMessage, uctx 
 // ─── ExitPlanMode ─────────────────────────────────────────────────────────────
 
 // ExitPlanModeTool signals that plan mode has ended and normal execution resumes.
-type ExitPlanModeTool struct{}
+type ExitPlanModeTool struct{ tool.BaseTool }
 
 func NewExitPlanMode() *ExitPlanModeTool { return &ExitPlanModeTool{} }
 
-func (t *ExitPlanModeTool) Name() string            { return "exit_plan_mode" }
-func (t *ExitPlanModeTool) UserFacingName() string  { return "ExitPlanMode" }
+func (t *ExitPlanModeTool) Name() string           { return "exit_plan_mode" }
+func (t *ExitPlanModeTool) UserFacingName() string { return "ExitPlanMode" }
 func (t *ExitPlanModeTool) Description() string {
 	return "Exit plan mode and resume normal tool execution."
 }
-func (t *ExitPlanModeTool) IsReadOnly() bool        { return true }
-func (t *ExitPlanModeTool) IsConcurrencySafe() bool { return true }
-func (t *ExitPlanModeTool) MaxResultSizeChars() int { return 200 }
+func (t *ExitPlanModeTool) IsReadOnly() bool                  { return true }
+func (t *ExitPlanModeTool) IsConcurrencySafe() bool           { return true }
+func (t *ExitPlanModeTool) MaxResultSizeChars() int           { return 200 }
 func (t *ExitPlanModeTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
 func (t *ExitPlanModeTool) InputSchema() json.RawMessage {

@@ -38,8 +38,14 @@ type PromptCommand interface {
 
 // ExecContext holds the environment available to a command during execution.
 type ExecContext struct {
-	WorkDir      string
-	SessionID    string
-	AutoMode     bool
-	PrintOutput  func(string)
+	WorkDir     string
+	SessionID   string
+	AutoMode    bool
+	Verbose     bool
+	Model       string
+	CostUSD     float64
+	PrintOutput func(string)
+	// ContextStats is optionally populated by the engine to expose token
+	// budget information to the /context command.
+	ContextStats *ContextStats
 }

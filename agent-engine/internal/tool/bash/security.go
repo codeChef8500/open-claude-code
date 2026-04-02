@@ -9,12 +9,26 @@ import (
 
 // dangerousCommands is the set of command names that are unconditionally refused.
 var dangerousCommands = map[string]bool{
-	"mkfs":    true,
-	"mkswap":  true,
-	"fdisk":   true,
-	"parted":  true,
-	"shred":   true,
-	"wipefs":  true,
+	"mkfs":     true,
+	"mkswap":   true,
+	"fdisk":    true,
+	"parted":   true,
+	"shred":    true,
+	"wipefs":   true,
+	"shutdown": true,
+	"poweroff": true,
+	"reboot":   true,
+	"halt":     true,
+	"init":     true, // init 0 / init 6
+}
+
+// sensitivePrefixes are path prefixes that must not be used as redirect targets.
+var sensitivePrefixes = []string{
+	"/dev/sd", "/dev/hd", "/dev/vd", "/dev/nvme",
+	"/dev/sda", "/dev/sdb",
+	"/dev/zero", "/dev/mem",
+	"/proc/", "/sys/",
+	"/boot/",
 }
 
 // checkShellAST parses the command with mvdan.cc/sh and inspects the AST for
@@ -72,14 +86,37 @@ func checkShellAST(command string) error {
 				}
 			}
 
+		case *syntax.Redirect:
+			// Block output redirections to sensitive paths.
+			switch n.Op {
+			case syntax.RdrOut, syntax.AppOut, syntax.RdrInOut, syntax.RdrAll, syntax.AppAll:
+				if n.Word != nil {
+					target := wordLiteral(n.Word)
+					if target != "" && isSensitivePath(target) {
+						walkErr = fmt.Errorf("redirect to sensitive path %q is not permitted", target)
+						return false
+					}
+				}
+			}
+
 		case *syntax.FuncDecl:
 			// Detect fork bomb: function that calls itself recursively and pipes to background.
-			// The simple string check above already covers the canonical form.
+			// The simple string check above already catches the canonical form.
 		}
 		return true
 	})
 
 	return walkErr
+}
+
+// isSensitivePath reports whether target matches a known sensitive path prefix.
+func isSensitivePath(target string) bool {
+	for _, prefix := range sensitivePrefixes {
+		if strings.HasPrefix(target, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkDangerousStrings is a fallback string-level check when AST parse fails.

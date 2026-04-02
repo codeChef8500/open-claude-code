@@ -15,13 +15,15 @@ type Input struct {
 	To string `json:"to,omitempty"`
 }
 
-type SendMessageTool struct{}
+type SendMessageTool struct{ tool.BaseTool }
 
 func New() *SendMessageTool { return &SendMessageTool{} }
 
-func (t *SendMessageTool) Name() string            { return "SendMessage" }
-func (t *SendMessageTool) UserFacingName() string  { return "send_message" }
-func (t *SendMessageTool) Description() string     { return "Send a message to the parent agent or another agent." }
+func (t *SendMessageTool) Name() string           { return "SendMessage" }
+func (t *SendMessageTool) UserFacingName() string { return "send_message" }
+func (t *SendMessageTool) Description() string {
+	return "Send a message to the parent agent or another agent."
+}
 func (t *SendMessageTool) IsReadOnly() bool        { return true }
 func (t *SendMessageTool) IsConcurrencySafe() bool { return true }
 func (t *SendMessageTool) MaxResultSizeChars() int { return 0 }

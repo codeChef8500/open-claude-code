@@ -10,18 +10,18 @@ import (
 )
 
 // TeamCreateTool creates a named team of sub-agents.
-type TeamCreateTool struct{}
+type TeamCreateTool struct{ tool.BaseTool }
 
 func New() *TeamCreateTool { return &TeamCreateTool{} }
 
-func (t *TeamCreateTool) Name() string            { return "team_create" }
-func (t *TeamCreateTool) UserFacingName() string  { return "TeamCreate" }
+func (t *TeamCreateTool) Name() string           { return "team_create" }
+func (t *TeamCreateTool) UserFacingName() string { return "TeamCreate" }
 func (t *TeamCreateTool) Description() string {
 	return "Create a named team of parallel sub-agents. Each agent receives an independent task and works concurrently."
 }
-func (t *TeamCreateTool) IsReadOnly() bool        { return false }
-func (t *TeamCreateTool) IsConcurrencySafe() bool { return false }
-func (t *TeamCreateTool) MaxResultSizeChars() int { return 4000 }
+func (t *TeamCreateTool) IsReadOnly() bool                  { return false }
+func (t *TeamCreateTool) IsConcurrencySafe() bool           { return false }
+func (t *TeamCreateTool) MaxResultSizeChars() int           { return 4000 }
 func (t *TeamCreateTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
 func (t *TeamCreateTool) InputSchema() json.RawMessage {

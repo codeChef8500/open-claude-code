@@ -10,9 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// compactThreshold is the fraction of MaxTokens at which auto-compact triggers.
-const compactThreshold = 0.80
-
 const maxTurns = 100
 
 // loopState tracks the internal state of a single query loop execution.
@@ -21,15 +18,48 @@ type loopState struct {
 	promptResult SystemPromptResult
 	stopReason   string
 	turnCount    int
+	// tokenBudget is updated with real token counts from EventUsage events.
+	tokenBudget TokenBudgetState
+}
+
+// resolveModel returns the effective model name for this query.
+func resolveModel(e *Engine, cfg QueryConfig) string {
+	if cfg.Model != "" {
+		return cfg.Model
+	}
+	return e.cfg.Model
+}
+
+// resolveMaxTokens returns the effective max-tokens for this query.
+func resolveMaxTokens(e *Engine, cfg QueryConfig) int {
+	if cfg.MaxTokens > 0 {
+		return cfg.MaxTokens
+	}
+	return e.cfg.MaxTokens
+}
+
+// resolveThinkingBudget returns the effective thinking budget for this query.
+func resolveThinkingBudget(e *Engine, cfg QueryConfig) int {
+	if cfg.ThinkingBudget > 0 {
+		return cfg.ThinkingBudget
+	}
+	return e.cfg.ThinkingBudget
 }
 
 // runQueryLoop is the core for-select state machine that drives the
 // conversation: callModel → dispatch tool calls → continue or stop.
 func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<- *StreamEvent) error {
+	qcfg := params.Config
+	qdeps := params.Deps
+
 	// ── 1. Load CLAUDE.md memory content ──────────────────────────────────
 	var memoryContent string
-	if e.memoryLoader != nil {
-		if mc, err := e.memoryLoader.LoadMemory(e.cfg.WorkDir); err == nil {
+	memLoader := e.memoryLoader
+	if qdeps.MemoryLoader != nil {
+		memLoader = qdeps.MemoryLoader
+	}
+	if memLoader != nil {
+		if mc, err := memLoader.LoadMemory(e.cfg.WorkDir); err == nil {
 			memoryContent = mc
 		} else {
 			slog.Debug("queryloop: memory load skipped", slog.Any("err", err))
@@ -37,8 +67,13 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 	}
 
 	// ── 2. Build 6-layer system prompt ────────────────────────────────────
+	effMaxTokens := resolveMaxTokens(e, qcfg)
 	ls := &loopState{
-		promptResult: buildSystemPromptIntegrated(e, memoryContent),
+		promptResult: buildSystemPromptIntegratedWithDeps(e, memoryContent, qdeps),
+		tokenBudget: TokenBudgetState{
+			ContextWindowSize:   effMaxTokens,
+			CompactionThreshold: 0.85,
+		},
 	}
 
 	// ── 3. Seed from prior session history ───────────────────────────────
@@ -51,47 +86,50 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 	ls.messages = append(ls.messages, userMsg)
 	e.persistMessage(userMsg)
 
+	effModel := resolveModel(e, qcfg)
+	effThinking := resolveThinkingBudget(e, qcfg)
+
 	for ls.turnCount < maxTurns {
 		ls.turnCount++
 		e.session.IncrTurn()
 
-		// ── 5. Auto-compact at 80% context threshold ──────────────────────
-		if e.cfg.MaxTokens > 0 && shouldCompact(ls.messages, e.cfg.MaxTokens) {
+		// ── 5. Auto-compact using real token budget from EventUsage ───────
+		if !qcfg.DisableCompaction && ls.tokenBudget.ShouldCompact() {
 			slog.Info("queryloop: auto-compact triggered",
 				slog.Int("turn", ls.turnCount),
-				slog.String("session", e.cfg.SessionID))
+				slog.String("session", e.cfg.SessionID),
+				slog.Float64("usage_frac", ls.tokenBudget.UsageFraction()))
 			emitSystemMessage(out, "Compacting conversation to free context space…")
-			compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, e.cfg.Model)
+			compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, effModel)
 			if err != nil {
 				slog.Warn("queryloop: auto-compact failed", slog.Any("err", err))
 			} else {
 				ls.messages = compacted
+				ls.tokenBudget.InputTokens = 0 // reset after compact
 			}
-		}
-
-		// ── Token-warning check before calling the model ──────────────────
-		tokenEst := EstimateTokens(ls.messages)
-		if e.cfg.MaxTokens > 0 {
-			ratio := float64(tokenEst) / float64(e.cfg.MaxTokens)
-			switch {
-			case ratio >= 0.95:
-				emitSystemMessage(out, "🚫 Context window is nearly full. Triggering compaction…")
-				if compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, e.cfg.Model); err == nil {
+		} else if !qcfg.DisableCompaction && effMaxTokens > 0 {
+			// Fallback: estimate-based warning when real counts are not yet available.
+			tokenEst := EstimateTokens(ls.messages)
+			ratio := float64(tokenEst) / float64(effMaxTokens)
+			if ratio >= 0.95 {
+				emitSystemMessage(out, "Context window is nearly full. Triggering compaction…")
+				if compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, effModel); err == nil {
 					ls.messages = compacted
 				}
-			case ratio >= 0.85:
-				emitSystemMessage(out, "⚠️ Context window is getting full. Consider using /compact.")
+			} else if ratio >= WarningFraction {
+				emitSystemMessage(out, "Context window is getting full. Consider using /compact.")
 			}
 		}
 
+		toolDefs := e.toolDefsWithExtra(qdeps.ExtraTools)
 		callParams := CallParams{
-			Model:             e.cfg.Model,
-			MaxTokens:         e.cfg.MaxTokens,
-			ThinkingBudget:    e.cfg.ThinkingBudget,
+			Model:             effModel,
+			MaxTokens:         effMaxTokens,
+			ThinkingBudget:    effThinking,
 			SystemPrompt:      ls.promptResult.Text,
 			SystemPromptParts: ls.promptResult.Parts,
 			Messages:          ls.messages,
-			Tools:             e.toolDefs(),
+			Tools:             toolDefs,
 			UsePromptCache:    true,
 		}
 
@@ -101,7 +139,7 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		}
 
 		// Consume the event stream from the provider.
-		assistantMsg, toolCalls, err := drainProviderStream(ctx, eventCh, out, e)
+		assistantMsg, toolCalls, err := drainProviderStream(ctx, eventCh, out, e, &ls.tokenBudget)
 		if err != nil {
 			return err
 		}
@@ -122,7 +160,7 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		}
 
 		// Execute tool calls and append results.
-		toolResultMsg, err := executeToolCalls(ctx, e, toolCalls, out)
+		toolResultMsg, err := executeToolCalls(ctx, e, toolCalls, qdeps.ExtraTools, out)
 		if err != nil {
 			return err
 		}
@@ -133,28 +171,33 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 	return fmt.Errorf("exceeded maximum turn limit (%d)", maxTurns)
 }
 
-// shouldCompact reports whether the accumulated message tokens exceed the
-// compactThreshold fraction of maxTokens.
-func shouldCompact(messages []*Message, maxTokens int) bool {
-	if maxTokens <= 0 {
-		return false
+// buildSystemPromptIntegratedWithDeps builds the system prompt, honouring any
+// per-query overrides in QueryDeps.
+func buildSystemPromptIntegratedWithDeps(e *Engine, memoryContent string, deps QueryDeps) SystemPromptResult {
+	builder := e.promptBuilder
+	if deps.SystemPromptBuilder != nil {
+		builder = deps.SystemPromptBuilder
 	}
-	tokenEst := EstimateTokens(messages)
-	return float64(tokenEst) >= float64(maxTokens)*compactThreshold
-}
-
-
-// buildSystemPromptIntegrated uses the injected SystemPromptBuilder when
-// available, falling back to the lightweight stub.
-func buildSystemPromptIntegrated(e *Engine, memoryContent string) SystemPromptResult {
-	if e.promptBuilder != nil {
-		return e.promptBuilder.BuildParts(SystemPromptOptions{
-			Tools:              e.enabledTools(),
+	tools := e.enabledTools()
+	if len(deps.ExtraTools) > 0 {
+		tools = append(tools, deps.ExtraTools...)
+	}
+	append_ := e.cfg.AppendSystemPrompt
+	if deps.ExtraSystemPrompt != "" {
+		if append_ != "" {
+			append_ += "\n\n" + deps.ExtraSystemPrompt
+		} else {
+			append_ = deps.ExtraSystemPrompt
+		}
+	}
+	if builder != nil {
+		return builder.BuildParts(SystemPromptOptions{
+			Tools:              tools,
 			UseContext:         e.useContext(),
 			WorkDir:            e.cfg.WorkDir,
 			MemoryContent:      memoryContent,
 			CustomSystemPrompt: e.cfg.CustomSystemPrompt,
-			AppendSystemPrompt: e.cfg.AppendSystemPrompt,
+			AppendSystemPrompt: append_,
 		})
 	}
 	return SystemPromptResult{Text: buildSystemPrompt(e)}
@@ -168,6 +211,7 @@ func drainProviderStream(
 	eventCh <-chan *StreamEvent,
 	out chan<- *StreamEvent,
 	e *Engine,
+	budget *TokenBudgetState,
 ) (*Message, []*pendingToolCall, error) {
 
 	assistantMsg := &Message{
@@ -236,6 +280,13 @@ func drainProviderStream(
 					ev.Usage.CostUSD = costUSD
 					e.session.AddUsage(ev.Usage.InputTokens, ev.Usage.OutputTokens, costUSD)
 					e.store.AddCostUSD(costUSD)
+					// Update real token budget from provider response.
+					if budget != nil {
+						budget.InputTokens = ev.Usage.InputTokens
+						budget.OutputTokens += ev.Usage.OutputTokens
+						budget.CacheReadTokens += ev.Usage.CacheReadInputTokens
+						budget.CacheWriteTokens += ev.Usage.CacheCreationInputTokens
+					}
 				}
 				out <- ev
 
@@ -270,12 +321,26 @@ type toolCallResult struct {
 	deniedMsg string
 }
 
+// tombstoneResult returns a tool-result block that documents an interrupted tool call.
+func tombstoneResult(toolUseID, toolName string) *ContentBlock {
+	return &ContentBlock{
+		Type:      ContentTypeToolResult,
+		ToolUseID: toolUseID,
+		Content: []*ContentBlock{{
+			Type: ContentTypeText,
+			Text: fmt.Sprintf("[Tool %s was interrupted before it could complete.]", toolName),
+		}},
+		IsError: true,
+	}
+}
+
 // executeToolCalls runs pending tool calls: concurrent-safe tools are
 // dispatched in parallel; the rest run sequentially in order.
 func executeToolCalls(
 	ctx context.Context,
 	e *Engine,
 	calls []*pendingToolCall,
+	extraTools []Tool,
 	out chan<- *StreamEvent,
 ) (*Message, error) {
 
@@ -293,7 +358,12 @@ func executeToolCalls(
 	var sequential []group
 
 	for _, tc := range calls {
-		t, ok := e.findTool(tc.Name)
+		// If context is already cancelled, tombstone remaining calls.
+		if ctx.Err() != nil {
+			resultMsg.Content = append(resultMsg.Content, tombstoneResult(tc.ID, tc.Name))
+			continue
+		}
+		t, ok := e.findToolWithExtra(tc.Name, extraTools)
 		if !ok {
 			resultMsg.Content = append(resultMsg.Content, &ContentBlock{
 				Type:      ContentTypeToolResult,
@@ -358,6 +428,17 @@ func executeToolCalls(
 		}
 	}
 
+	// If ctx is already cancelled at this point, tombstone everything pending.
+	if ctx.Err() != nil {
+		for _, g := range concurrent {
+			resultMsg.Content = append(resultMsg.Content, tombstoneResult(g.tc.ID, g.tc.Name))
+		}
+		for _, g := range sequential {
+			resultMsg.Content = append(resultMsg.Content, tombstoneResult(g.tc.ID, g.tc.Name))
+		}
+		return resultMsg, nil
+	}
+
 	// Execute concurrent-safe tools in parallel.
 	if len(concurrent) > 0 {
 		results := make([]toolCallResult, len(concurrent))
@@ -389,7 +470,17 @@ func executeToolCalls(
 
 	// Execute sequential tools one at a time.
 	for _, g := range sequential {
+		// Tombstone if context cancelled between sequential calls.
+		if ctx.Err() != nil {
+			resultMsg.Content = append(resultMsg.Content, tombstoneResult(g.tc.ID, g.tc.Name))
+			continue
+		}
 		res := runSingleTool(ctx, g.tc, g.tool, e)
+		// If tool returned no blocks (e.g. cancelled), inject tombstone.
+		if len(res.blocks) == 0 && ctx.Err() != nil {
+			resultMsg.Content = append(resultMsg.Content, tombstoneResult(g.tc.ID, g.tc.Name))
+			continue
+		}
 		out <- &StreamEvent{
 			Type:     EventToolResult,
 			ToolID:   res.toolUseID,

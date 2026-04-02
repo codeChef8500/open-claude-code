@@ -11,10 +11,10 @@ import (
 )
 
 type Input struct {
-	Task           string   `json:"task"`
-	AllowedTools   []string `json:"allowed_tools,omitempty"`
-	MaxTurns       int      `json:"max_turns,omitempty"`
-	SystemPrompt   string   `json:"system_prompt,omitempty"`
+	Task         string   `json:"task"`
+	AllowedTools []string `json:"allowed_tools,omitempty"`
+	MaxTurns     int      `json:"max_turns,omitempty"`
+	SystemPrompt string   `json:"system_prompt,omitempty"`
 }
 
 // SubAgentRunner is the callback the parent engine provides to launch a child agent.
@@ -22,6 +22,7 @@ type SubAgentRunner func(ctx context.Context, agentID, task string, input Input,
 
 // AgentTool spawns a sub-agent to complete a task.
 type AgentTool struct {
+	tool.BaseTool
 	runSubAgent SubAgentRunner
 }
 
@@ -29,13 +30,14 @@ func New(runner SubAgentRunner) *AgentTool {
 	return &AgentTool{runSubAgent: runner}
 }
 
-func (t *AgentTool) Name() string            { return "Task" }
-func (t *AgentTool) UserFacingName() string  { return "task" }
-func (t *AgentTool) Description() string     { return "Spawn a sub-agent to complete a task autonomously." }
-func (t *AgentTool) IsReadOnly() bool        { return false }
-func (t *AgentTool) IsConcurrencySafe() bool { return true }
-func (t *AgentTool) MaxResultSizeChars() int { return 50_000 }
+func (t *AgentTool) Name() string                      { return "Task" }
+func (t *AgentTool) UserFacingName() string            { return "task" }
+func (t *AgentTool) Description() string               { return "Spawn a sub-agent to complete a task autonomously." }
+func (t *AgentTool) IsReadOnly() bool                  { return false }
+func (t *AgentTool) IsConcurrencySafe() bool           { return true }
+func (t *AgentTool) MaxResultSizeChars() int           { return 50_000 }
 func (t *AgentTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *AgentTool) IsTransparentWrapper() bool        { return true }
 
 func (t *AgentTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

@@ -14,22 +14,22 @@ import (
 // Engine manages a single conversation session with an LLM.
 // It is the top-level object callers interact with.
 type Engine struct {
-	cfg      EngineConfig
-	caller   ModelCaller
-	tools    []Tool
-	store    *state.Store
-	session  *state.SessionState
+	cfg     EngineConfig
+	caller  ModelCaller
+	tools   []Tool
+	store   *state.Store
+	session *state.SessionState
 
 	// historyMu guards history across concurrent SubmitMessage calls.
 	historyMu sync.Mutex
 	// history accumulates all messages across SubmitMessage calls for multi-turn context.
-	history   []*Message
+	history []*Message
 
 	// Optional integrations — wired at SDK level to avoid import cycles.
-	memoryLoader      MemoryLoader
-	sessionWriter     SessionWriter
-	promptBuilder     SystemPromptBuilder
-	permChecker       GlobalPermissionChecker
+	memoryLoader       MemoryLoader
+	sessionWriter      SessionWriter
+	promptBuilder      SystemPromptBuilder
+	permChecker        GlobalPermissionChecker
 	autoModeClassifier AutoModeClassifier
 }
 
@@ -163,6 +163,35 @@ func (e *Engine) findTool(name string) (Tool, bool) {
 	return nil, false
 }
 
+// findToolWithExtra looks up a tool by name, also searching extra per-query tools.
+func (e *Engine) findToolWithExtra(name string, extra []Tool) (Tool, bool) {
+	if t, ok := e.findTool(name); ok {
+		return t, true
+	}
+	for _, t := range extra {
+		if t.Name() == name {
+			return t, true
+		}
+	}
+	return nil, false
+}
+
+// toolDefsWithExtra returns ToolDefinitions for all enabled tools plus any extra per-query tools.
+func (e *Engine) toolDefsWithExtra(extra []Tool) []ToolDefinition {
+	defs := e.toolDefs()
+	for _, t := range extra {
+		uctx := e.useContext()
+		if t.IsEnabled(uctx) {
+			defs = append(defs, ToolDefinition{
+				Name:        t.Name(),
+				Description: t.Description(),
+				InputSchema: t.InputSchema(),
+			})
+		}
+	}
+	return defs
+}
+
 // emitSystemMessage sends a non-LLM status update to the caller.
 func emitSystemMessage(ch chan<- *StreamEvent, msg string) {
 	select {
@@ -176,7 +205,7 @@ func emitSystemMessage(ch chan<- *StreamEvent, msg string) {
 // Prices are based on Claude Sonnet 4 list prices (update as needed).
 func computeCostUSD(usage *UsageStats, model string) float64 {
 	// Default to Sonnet pricing
-	inputCPM := 3.0  // $ per million tokens
+	inputCPM := 3.0 // $ per million tokens
 	outputCPM := 15.0
 
 	microUSD := float64(usage.InputTokens)*inputCPM/1_000_000 +

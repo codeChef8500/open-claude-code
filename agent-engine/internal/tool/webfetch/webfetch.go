@@ -14,15 +14,16 @@ import (
 	"github.com/ledongthuc/pdf"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
+	"github.com/wall-ai/agent-engine/internal/util"
 )
 
 // Ensure the import is used at compile time even if no html is encountered.
 var _ = htmltomarkdown.ConvertString
 
 const (
-	maxBodyBytes  = 5 * 1024 * 1024 // 5 MB
+	maxBodyBytes   = 5 * 1024 * 1024 // 5 MB
 	maxOutputChars = 100_000
-	httpTimeout   = 30 * time.Second
+	httpTimeout    = 30 * time.Second
 )
 
 type Input struct {
@@ -33,6 +34,7 @@ type Input struct {
 }
 
 type WebFetchTool struct {
+	tool.BaseTool
 	client *http.Client
 }
 
@@ -40,13 +42,14 @@ func New() *WebFetchTool {
 	return &WebFetchTool{client: &http.Client{Timeout: httpTimeout}}
 }
 
-func (t *WebFetchTool) Name() string            { return "WebFetch" }
-func (t *WebFetchTool) UserFacingName() string  { return "web_fetch" }
-func (t *WebFetchTool) Description() string     { return "Fetch the content of a web page." }
-func (t *WebFetchTool) IsReadOnly() bool        { return true }
-func (t *WebFetchTool) IsConcurrencySafe() bool { return true }
-func (t *WebFetchTool) MaxResultSizeChars() int { return maxOutputChars }
+func (t *WebFetchTool) Name() string                      { return "WebFetch" }
+func (t *WebFetchTool) UserFacingName() string            { return "web_fetch" }
+func (t *WebFetchTool) Description() string               { return "Fetch the content of a web page." }
+func (t *WebFetchTool) IsReadOnly() bool                  { return true }
+func (t *WebFetchTool) IsConcurrencySafe() bool           { return true }
+func (t *WebFetchTool) MaxResultSizeChars() int           { return maxOutputChars }
 func (t *WebFetchTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *WebFetchTool) IsSearchOrRead() bool              { return true }
 
 func (t *WebFetchTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -70,8 +73,9 @@ func (t *WebFetchTool) CheckPermissions(_ context.Context, input json.RawMessage
 	if in.URL == "" {
 		return fmt.Errorf("url must not be empty")
 	}
-	if !strings.HasPrefix(in.URL, "http://") && !strings.HasPrefix(in.URL, "https://") {
-		return fmt.Errorf("url must start with http:// or https://")
+	// SSRF guard: rejects private/loopback addresses and metadata endpoints.
+	if err := util.CheckSSRF(in.URL); err != nil {
+		return err
 	}
 	return nil
 }

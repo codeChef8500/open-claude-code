@@ -18,17 +18,18 @@ type Input struct {
 	Path    string `json:"path,omitempty"`
 }
 
-type GlobTool struct{}
+type GlobTool struct{ tool.BaseTool }
 
 func New() *GlobTool { return &GlobTool{} }
 
-func (t *GlobTool) Name() string            { return "Glob" }
-func (t *GlobTool) UserFacingName() string  { return "glob" }
-func (t *GlobTool) Description() string     { return "Find files matching a glob pattern." }
-func (t *GlobTool) IsReadOnly() bool        { return true }
-func (t *GlobTool) IsConcurrencySafe() bool { return true }
-func (t *GlobTool) MaxResultSizeChars() int { return 50_000 }
+func (t *GlobTool) Name() string                      { return "Glob" }
+func (t *GlobTool) UserFacingName() string            { return "glob" }
+func (t *GlobTool) Description() string               { return "Find files matching a glob pattern." }
+func (t *GlobTool) IsReadOnly() bool                  { return true }
+func (t *GlobTool) IsConcurrencySafe() bool           { return true }
+func (t *GlobTool) MaxResultSizeChars() int           { return 50_000 }
 func (t *GlobTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *GlobTool) IsSearchOrRead() bool              { return true }
 
 func (t *GlobTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

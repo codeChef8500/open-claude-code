@@ -13,13 +13,15 @@ type Input struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-type TaskStopTool struct{}
+type TaskStopTool struct{ tool.BaseTool }
 
 func New() *TaskStopTool { return &TaskStopTool{} }
 
-func (t *TaskStopTool) Name() string            { return "TaskStop" }
-func (t *TaskStopTool) UserFacingName() string  { return "task_stop" }
-func (t *TaskStopTool) Description() string     { return "Signal that the current task is complete and stop the agent loop." }
+func (t *TaskStopTool) Name() string           { return "TaskStop" }
+func (t *TaskStopTool) UserFacingName() string { return "task_stop" }
+func (t *TaskStopTool) Description() string {
+	return "Signal that the current task is complete and stop the agent loop."
+}
 func (t *TaskStopTool) IsReadOnly() bool        { return true }
 func (t *TaskStopTool) IsConcurrencySafe() bool { return false }
 func (t *TaskStopTool) MaxResultSizeChars() int { return 0 }

@@ -16,16 +16,16 @@ type Input struct {
 
 // BriefTool emits a structured brief/summary block that callers can render
 // specially in their UI (e.g. collapsible panel).
-type BriefTool struct{}
+type BriefTool struct{ tool.BaseTool }
 
 func New() *BriefTool { return &BriefTool{} }
 
-func (t *BriefTool) Name() string            { return "Brief" }
-func (t *BriefTool) UserFacingName() string  { return "brief" }
-func (t *BriefTool) Description() string     { return "Emit a structured brief or progress summary." }
-func (t *BriefTool) IsReadOnly() bool        { return true }
-func (t *BriefTool) IsConcurrencySafe() bool { return true }
-func (t *BriefTool) MaxResultSizeChars() int { return 10_000 }
+func (t *BriefTool) Name() string                      { return "Brief" }
+func (t *BriefTool) UserFacingName() string            { return "brief" }
+func (t *BriefTool) Description() string               { return "Emit a structured brief or progress summary." }
+func (t *BriefTool) IsReadOnly() bool                  { return true }
+func (t *BriefTool) IsConcurrencySafe() bool           { return true }
+func (t *BriefTool) MaxResultSizeChars() int           { return 10_000 }
 func (t *BriefTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
 func (t *BriefTool) InputSchema() json.RawMessage {

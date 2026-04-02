@@ -13,6 +13,9 @@ type SessionMetadata struct {
 	CostUSD     float64   `json:"cost_usd"`
 	Summary     string    `json:"summary,omitempty"`
 	Tags        []string  `json:"tags,omitempty"`
+	Model       string    `json:"model,omitempty"`
+	ForkOf      string    `json:"fork_of,omitempty"`
+	ForkLabel   string    `json:"fork_label,omitempty"`
 }
 
 // TranscriptEntryType classifies each record in a JSONL transcript.

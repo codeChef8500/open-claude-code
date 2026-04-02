@@ -13,6 +13,7 @@ import (
 // SkillTool wraps a loaded Skill as a Tool, injecting its prompt content
 // as a user message to trigger the skill's workflow.
 type SkillTool struct {
+	tool.BaseTool
 	skill *Skill
 }
 
@@ -29,9 +30,9 @@ func (t *SkillTool) Description() string {
 	}
 	return "Run skill: " + t.skill.Meta.Name
 }
-func (t *SkillTool) IsReadOnly() bool        { return false }
-func (t *SkillTool) IsConcurrencySafe() bool { return false }
-func (t *SkillTool) MaxResultSizeChars() int { return 0 }
+func (t *SkillTool) IsReadOnly() bool                  { return false }
+func (t *SkillTool) IsConcurrencySafe() bool           { return false }
+func (t *SkillTool) MaxResultSizeChars() int           { return 0 }
 func (t *SkillTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
 func (t *SkillTool) InputSchema() json.RawMessage {

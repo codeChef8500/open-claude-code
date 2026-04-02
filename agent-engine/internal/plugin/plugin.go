@@ -29,6 +29,7 @@ var HandshakeConfig = goplugin.HandshakeConfig{
 
 // ExternalPlugin wraps a subprocess plugin binary as a Tool.
 type ExternalPlugin struct {
+	tool.BaseTool
 	meta   PluginMeta
 	client *goplugin.Client
 	binary string
@@ -83,12 +84,12 @@ func (p *ExternalPlugin) Close() { p.client.Kill() }
 
 // ─── Tool interface implementation ────────────────────────────────────────────
 
-func (p *ExternalPlugin) Name() string            { return p.meta.Name }
-func (p *ExternalPlugin) UserFacingName() string  { return p.meta.Name }
-func (p *ExternalPlugin) Description() string     { return p.meta.Description }
-func (p *ExternalPlugin) IsReadOnly() bool        { return false }
-func (p *ExternalPlugin) IsConcurrencySafe() bool { return false }
-func (p *ExternalPlugin) MaxResultSizeChars() int { return 50_000 }
+func (p *ExternalPlugin) Name() string                      { return p.meta.Name }
+func (p *ExternalPlugin) UserFacingName() string            { return p.meta.Name }
+func (p *ExternalPlugin) Description() string               { return p.meta.Description }
+func (p *ExternalPlugin) IsReadOnly() bool                  { return false }
+func (p *ExternalPlugin) IsConcurrencySafe() bool           { return false }
+func (p *ExternalPlugin) MaxResultSizeChars() int           { return 50_000 }
 func (p *ExternalPlugin) IsEnabled(_ *tool.UseContext) bool { return true }
 func (p *ExternalPlugin) InputSchema() json.RawMessage      { return p.meta.InputSchema }
 func (p *ExternalPlugin) Prompt(_ *tool.UseContext) string  { return "" }

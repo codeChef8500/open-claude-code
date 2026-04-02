@@ -14,17 +14,18 @@ import (
 )
 
 const (
-	maxResults    = 10
-	httpTimeout   = 15 * time.Second
+	maxResults  = 10
+	httpTimeout = 15 * time.Second
 )
 
 type Input struct {
-	Query   string `json:"query"`
-	MaxResults int `json:"max_results,omitempty"`
+	Query      string `json:"query"`
+	MaxResults int    `json:"max_results,omitempty"`
 }
 
 // WebSearchTool uses a configurable search backend (default: DuckDuckGo JSON API).
 type WebSearchTool struct {
+	tool.BaseTool
 	apiKey  string
 	baseURL string
 	client  *http.Client
@@ -41,13 +42,14 @@ func New(apiKey, baseURL string) *WebSearchTool {
 	}
 }
 
-func (t *WebSearchTool) Name() string            { return "WebSearch" }
-func (t *WebSearchTool) UserFacingName() string  { return "web_search" }
-func (t *WebSearchTool) Description() string     { return "Search the web for information." }
-func (t *WebSearchTool) IsReadOnly() bool        { return true }
-func (t *WebSearchTool) IsConcurrencySafe() bool { return true }
-func (t *WebSearchTool) MaxResultSizeChars() int { return 50_000 }
+func (t *WebSearchTool) Name() string                      { return "WebSearch" }
+func (t *WebSearchTool) UserFacingName() string            { return "web_search" }
+func (t *WebSearchTool) Description() string               { return "Search the web for information." }
+func (t *WebSearchTool) IsReadOnly() bool                  { return true }
+func (t *WebSearchTool) IsConcurrencySafe() bool           { return true }
+func (t *WebSearchTool) MaxResultSizeChars() int           { return 50_000 }
 func (t *WebSearchTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *WebSearchTool) IsSearchOrRead() bool              { return true }
 
 func (t *WebSearchTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

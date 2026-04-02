@@ -20,17 +20,32 @@ type Input struct {
 	NewString string `json:"new_string"`
 }
 
-type FileEditTool struct{}
+type FileEditTool struct{ tool.BaseTool }
 
 func New() *FileEditTool { return &FileEditTool{} }
 
-func (t *FileEditTool) Name() string            { return "Edit" }
-func (t *FileEditTool) UserFacingName() string  { return "edit" }
-func (t *FileEditTool) Description() string     { return "Replace an exact string in a file." }
-func (t *FileEditTool) IsReadOnly() bool        { return false }
-func (t *FileEditTool) IsConcurrencySafe() bool { return false }
-func (t *FileEditTool) MaxResultSizeChars() int { return 0 }
+func (t *FileEditTool) Name() string                      { return "Edit" }
+func (t *FileEditTool) UserFacingName() string            { return "edit" }
+func (t *FileEditTool) Description() string               { return "Replace an exact string in a file." }
+func (t *FileEditTool) IsReadOnly() bool                  { return false }
+func (t *FileEditTool) IsConcurrencySafe() bool           { return false }
+func (t *FileEditTool) MaxResultSizeChars() int           { return 0 }
 func (t *FileEditTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *FileEditTool) IsDestructive() bool               { return true }
+func (t *FileEditTool) ShouldDefer() bool                 { return true }
+func (t *FileEditTool) GetPath(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	return in.FilePath
+}
+func (t *FileEditTool) GetActivityDescription(input json.RawMessage) string {
+	if p := t.GetPath(input); p != "" {
+		return "Editing " + p
+	}
+	return "Editing file"
+}
 
 func (t *FileEditTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{

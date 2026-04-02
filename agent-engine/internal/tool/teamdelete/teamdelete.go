@@ -10,18 +10,18 @@ import (
 )
 
 // TeamDeleteTool cancels and removes a running team.
-type TeamDeleteTool struct{}
+type TeamDeleteTool struct{ tool.BaseTool }
 
 func New() *TeamDeleteTool { return &TeamDeleteTool{} }
 
-func (t *TeamDeleteTool) Name() string            { return "team_delete" }
-func (t *TeamDeleteTool) UserFacingName() string  { return "TeamDelete" }
+func (t *TeamDeleteTool) Name() string           { return "team_delete" }
+func (t *TeamDeleteTool) UserFacingName() string { return "TeamDelete" }
 func (t *TeamDeleteTool) Description() string {
 	return "Cancel all agents in a team and remove the team from the registry."
 }
-func (t *TeamDeleteTool) IsReadOnly() bool        { return false }
-func (t *TeamDeleteTool) IsConcurrencySafe() bool { return false }
-func (t *TeamDeleteTool) MaxResultSizeChars() int { return 500 }
+func (t *TeamDeleteTool) IsReadOnly() bool                  { return false }
+func (t *TeamDeleteTool) IsConcurrencySafe() bool           { return false }
+func (t *TeamDeleteTool) MaxResultSizeChars() int           { return 500 }
 func (t *TeamDeleteTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
 func (t *TeamDeleteTool) InputSchema() json.RawMessage {

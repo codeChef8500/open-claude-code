@@ -15,7 +15,7 @@ import (
 type TodoItem struct {
 	ID       string `json:"id"`
 	Content  string `json:"content"`
-	Status   string `json:"status"` // "pending" | "in_progress" | "completed"
+	Status   string `json:"status"`   // "pending" | "in_progress" | "completed"
 	Priority string `json:"priority"` // "high" | "medium" | "low"
 }
 
@@ -23,16 +23,16 @@ type Input struct {
 	Todos []TodoItem `json:"todos"`
 }
 
-type TodoWriteTool struct{}
+type TodoWriteTool struct{ tool.BaseTool }
 
 func New() *TodoWriteTool { return &TodoWriteTool{} }
 
-func (t *TodoWriteTool) Name() string            { return "TodoWrite" }
-func (t *TodoWriteTool) UserFacingName() string  { return "todo_write" }
-func (t *TodoWriteTool) Description() string     { return "Create or update a structured todo list." }
-func (t *TodoWriteTool) IsReadOnly() bool        { return false }
-func (t *TodoWriteTool) IsConcurrencySafe() bool { return false }
-func (t *TodoWriteTool) MaxResultSizeChars() int { return 0 }
+func (t *TodoWriteTool) Name() string                      { return "TodoWrite" }
+func (t *TodoWriteTool) UserFacingName() string            { return "todo_write" }
+func (t *TodoWriteTool) Description() string               { return "Create or update a structured todo list." }
+func (t *TodoWriteTool) IsReadOnly() bool                  { return false }
+func (t *TodoWriteTool) IsConcurrencySafe() bool           { return false }
+func (t *TodoWriteTool) MaxResultSizeChars() int           { return 0 }
 func (t *TodoWriteTool) IsEnabled(_ *tool.UseContext) bool { return true }
 
 func (t *TodoWriteTool) InputSchema() json.RawMessage {
