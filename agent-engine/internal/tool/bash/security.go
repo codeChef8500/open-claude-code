@@ -9,26 +9,43 @@ import (
 
 // dangerousCommands is the set of command names that are unconditionally refused.
 var dangerousCommands = map[string]bool{
-	"mkfs":     true,
-	"mkswap":   true,
-	"fdisk":    true,
-	"parted":   true,
-	"shred":    true,
-	"wipefs":   true,
-	"shutdown": true,
-	"poweroff": true,
-	"reboot":   true,
-	"halt":     true,
-	"init":     true, // init 0 / init 6
+	"mkfs":       true,
+	"mkswap":     true,
+	"fdisk":      true,
+	"parted":     true,
+	"shred":      true,
+	"wipefs":     true,
+	"shutdown":   true,
+	"poweroff":   true,
+	"reboot":     true,
+	"halt":       true,
+	"init":       true, // init 0 / init 6
+	"blkdiscard": true,
+	"hdparm":     true, // can destroy data with --write-sector
+	"sgdisk":     true,
+	"gdisk":      true,
+	"cfdisk":     true,
+	"sfdisk":     true,
+	"badblocks":  true,
+	"fsck":       true, // fsck on mounted FS can cause data loss
+	"swapoff":    true,
+	"swapon":     true,
+	"insmod":     true,
+	"rmmod":      true,
+	"modprobe":   true,
+	"iptables":   true,
+	"nft":        true,
 }
 
 // sensitivePrefixes are path prefixes that must not be used as redirect targets.
 var sensitivePrefixes = []string{
 	"/dev/sd", "/dev/hd", "/dev/vd", "/dev/nvme",
 	"/dev/sda", "/dev/sdb",
-	"/dev/zero", "/dev/mem",
+	"/dev/zero", "/dev/mem", "/dev/kmem",
 	"/proc/", "/sys/",
 	"/boot/",
+	"/etc/passwd", "/etc/shadow", "/etc/sudoers",
+	"/etc/ssh/",
 }
 
 // checkShellAST parses the command with mvdan.cc/sh and inspects the AST for

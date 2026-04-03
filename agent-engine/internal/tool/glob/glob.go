@@ -11,6 +11,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
+	"github.com/wall-ai/agent-engine/internal/util"
 )
 
 type Input struct {
@@ -61,7 +62,27 @@ func (t *GlobTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *GlobTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *GlobTool) Prompt(_ *tool.UseContext) string {
+	return `- Fast file pattern matching tool that works with any codebase size
+- Supports glob patterns like "**/*.js" or "src/**/*.ts"
+- Returns matching file paths sorted by modification time
+- Use this tool when you need to find files by name patterns
+- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Task tool instead`
+}
+
+func (t *GlobTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Pattern == "" {
+		return fmt.Errorf("pattern must not be empty")
+	}
+	if in.Path != "" && util.IsUNCPath(in.Path) {
+		return fmt.Errorf("UNC paths are not allowed")
+	}
+	return nil
+}
 
 func (t *GlobTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in Input
@@ -89,6 +110,12 @@ func (t *GlobTool) Call(_ context.Context, input json.RawMessage, uctx *tool.Use
 			root = uctx.WorkDir
 		} else if !filepath.IsAbs(root) {
 			root = filepath.Join(uctx.WorkDir, root)
+		}
+
+		// Validate directory exists.
+		if !util.DirExists(root) {
+			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: fmt.Sprintf("directory not found: %s", root), IsError: true}
+			return
 		}
 		root = filepath.ToSlash(root)
 

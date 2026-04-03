@@ -18,13 +18,13 @@ type SleepTool struct{ tool.BaseTool }
 
 func New() *SleepTool { return &SleepTool{} }
 
-func (t *SleepTool) Name() string                      { return "Sleep" }
-func (t *SleepTool) UserFacingName() string            { return "sleep" }
-func (t *SleepTool) Description() string               { return "Sleep for the specified number of milliseconds." }
-func (t *SleepTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
-func (t *SleepTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
-func (t *SleepTool) MaxResultSizeChars() int           { return 0 }
-func (t *SleepTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *SleepTool) Name() string                             { return "Sleep" }
+func (t *SleepTool) UserFacingName() string                   { return "sleep" }
+func (t *SleepTool) Description() string                      { return "Sleep for the specified number of milliseconds." }
+func (t *SleepTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *SleepTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
+func (t *SleepTool) MaxResultSizeChars() int                  { return 0 }
+func (t *SleepTool) IsEnabled(_ *tool.UseContext) bool        { return true }
 func (t *SleepTool) InterruptBehavior() engine.InterruptBehavior {
 	return engine.InterruptBehaviorStop
 }
@@ -39,7 +39,9 @@ func (t *SleepTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *SleepTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *SleepTool) Prompt(_ *tool.UseContext) string {
+	return `Sleep for the specified number of milliseconds. Use this tool when you need to wait before checking the result of a background operation. Maximum sleep duration is 60 seconds (60000ms).`
+}
 
 func (t *SleepTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in Input

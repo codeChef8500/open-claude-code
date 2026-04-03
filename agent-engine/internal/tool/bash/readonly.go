@@ -13,11 +13,17 @@ var readOnlyCommands = map[string]bool{
 	"cat": true, "less": true, "more": true, "head": true, "tail": true,
 	"file": true, "stat": true, "ls": true, "ll": true, "dir": true,
 	"find": true, "locate": true, "which": true, "whereis": true, "type": true,
+	"readlink": true, "realpath": true, "basename": true, "dirname": true,
 	// Content search
 	"grep": true, "rg": true, "ag": true, "ack": true, "fgrep": true, "egrep": true,
 	// Text processing (read-only)
 	"wc": true, "sort": true, "uniq": true, "cut": true, "awk": true, "sed": true,
 	"tr": true, "column": true, "diff": true, "comm": true, "join": true,
+	"expand": true, "unexpand": true, "fold": true, "fmt": true,
+	"nl": true, "tac": true, "rev": true, "paste": true,
+	// Encoding / hashing
+	"base64": true, "md5sum": true, "sha256sum": true, "sha1sum": true,
+	"xxd": true, "od": true, "hexdump": true,
 	// Archive inspection (not extraction)
 	"zipinfo": true, "unzip": false, // unzip extracts — not read-only
 	// System info
@@ -32,19 +38,43 @@ var readOnlyCommands = map[string]bool{
 	// Git read ops
 	"git": false, // git is handled separately below
 	// Misc read
-	"man": true, "help": true, "true": true, "false": true,
+	"man": true, "info": true, "help": true, "true": true, "false": true,
 	"test": true, "[": true, "[[": true,
+	"tree": true, "du": true, "df": true, "free": true, "mount": false,
 	"jq": true, "yq": true, "xmllint": true,
-	"md5sum": true, "sha256sum": true, "sha1sum": true, "xxd": true, "od": true,
 }
 
 // readOnlyGitSubcmds are the git subcommands that only read repository state.
 var readOnlyGitSubcmds = map[string]bool{
-	"status": true, "log": true, "diff": true, "show": true, "branch": true,
-	"tag": true, "remote": true, "fetch": false, // fetch changes remote refs
-	"ls-files": true, "ls-remote": true, "rev-parse": true, "describe": true,
-	"blame": true, "shortlog": true, "stash": false, // stash modifies
-	"config": true, // reading config is ok; writing requires --global etc.
+	// Inspection
+	"status": true, "log": true, "diff": true, "show": true,
+	"blame": true, "shortlog": true, "annotate": true,
+	// Branch / tag listing
+	"branch": true, "tag": true,
+	// Remote info (read-only — fetch is NOT read-only)
+	"remote": true, "fetch": false,
+	// Ref resolution
+	"rev-parse": true, "rev-list": true, "describe": true,
+	"name-rev": true, "symbolic-ref": true,
+	// File listing
+	"ls-files": true, "ls-remote": true, "ls-tree": true,
+	// Object inspection
+	"cat-file": true, "hash-object": true, "verify-pack": true,
+	// Config reading
+	"config": true, "var": true,
+	// Diff variants
+	"diff-files": true, "diff-index": true, "diff-tree": true,
+	"range-diff": true, "format-patch": true,
+	// Log variants
+	"reflog": true, "count-objects": true, "fsck": true,
+	"verify-commit": true, "verify-tag": true,
+	// Grep inside repo
+	"grep": true,
+	// Misc read-only
+	"help": true, "version": true, "instaweb": false,
+	"notes": false, "stash": false, // stash modifies
+	"worktree":  false, // worktree add/remove modifies
+	"submodule": false, // submodule update modifies
 }
 
 // IsReadOnlyCommand reports whether the given shell command string appears to

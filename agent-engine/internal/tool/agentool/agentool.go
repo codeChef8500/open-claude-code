@@ -30,14 +30,14 @@ func New(runner SubAgentRunner) *AgentTool {
 	return &AgentTool{runSubAgent: runner}
 }
 
-func (t *AgentTool) Name() string                      { return "Task" }
-func (t *AgentTool) UserFacingName() string            { return "task" }
-func (t *AgentTool) Description() string               { return "Spawn a sub-agent to complete a task autonomously." }
-func (t *AgentTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
-func (t *AgentTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
-func (t *AgentTool) MaxResultSizeChars() int           { return 50_000 }
-func (t *AgentTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *AgentTool) IsTransparentWrapper() bool        { return true }
+func (t *AgentTool) Name() string                             { return "Task" }
+func (t *AgentTool) UserFacingName() string                   { return "task" }
+func (t *AgentTool) Description() string                      { return "Spawn a sub-agent to complete a task autonomously." }
+func (t *AgentTool) IsReadOnly(_ json.RawMessage) bool        { return false }
+func (t *AgentTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
+func (t *AgentTool) MaxResultSizeChars() int                  { return 50_000 }
+func (t *AgentTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+func (t *AgentTool) IsTransparentWrapper() bool               { return true }
 
 func (t *AgentTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -53,9 +53,45 @@ func (t *AgentTool) InputSchema() json.RawMessage {
 }
 
 func (t *AgentTool) Prompt(_ *tool.UseContext) string {
-	return `## Task Tool
-Spawn a sub-agent to complete a focused task. The sub-agent runs autonomously and returns its result.
-Use this for parallelisable or delegatable subtasks.`
+	return `Launch a new agent to handle complex, multi-step tasks autonomously.
+
+The Task tool launches specialized agents (subprocesses) that autonomously handle complex tasks.
+
+When NOT to use the Task tool:
+- If you want to read a specific file path, use the Read tool or Glob tool instead, to find the match more quickly
+- If you are searching for a specific class definition like "class Foo", use Glob/Grep instead, to find the match more quickly
+- If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead
+
+Usage notes:
+- Always include a short description summarizing what the agent will do
+- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
+- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary.
+- Each Agent invocation starts fresh — provide a complete task description.
+- The agent's outputs should generally be trusted
+- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.)
+
+Writing the prompt:
+- Brief the agent like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters.
+- Explain what you're trying to accomplish and why.
+- Describe what you've already learned or ruled out.
+- Give enough context about the surrounding problem that the agent can make judgment calls rather than just following a narrow instruction.`
+}
+
+func (t *AgentTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Task == "" {
+		return fmt.Errorf("task must not be empty")
+	}
+	if in.MaxTurns < 0 {
+		return fmt.Errorf("max_turns must be non-negative")
+	}
+	if in.MaxTurns > 200 {
+		return fmt.Errorf("max_turns exceeds maximum of 200")
+	}
+	return nil
 }
 
 func (t *AgentTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {

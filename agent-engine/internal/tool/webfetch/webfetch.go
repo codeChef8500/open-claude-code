@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -42,14 +43,16 @@ func New() *WebFetchTool {
 	return &WebFetchTool{client: &http.Client{Timeout: httpTimeout}}
 }
 
-func (t *WebFetchTool) Name() string                      { return "WebFetch" }
-func (t *WebFetchTool) UserFacingName() string            { return "web_fetch" }
-func (t *WebFetchTool) Description() string               { return "Fetch the content of a web page." }
-func (t *WebFetchTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
-func (t *WebFetchTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
-func (t *WebFetchTool) MaxResultSizeChars() int           { return maxOutputChars }
-func (t *WebFetchTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *WebFetchTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
+func (t *WebFetchTool) Name() string                             { return "WebFetch" }
+func (t *WebFetchTool) UserFacingName() string                   { return "web_fetch" }
+func (t *WebFetchTool) Description() string                      { return "Fetch the content of a web page." }
+func (t *WebFetchTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *WebFetchTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
+func (t *WebFetchTool) MaxResultSizeChars() int                  { return maxOutputChars }
+func (t *WebFetchTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+func (t *WebFetchTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo {
+	return engine.SearchOrReadInfo{IsSearch: true}
+}
 
 func (t *WebFetchTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -63,7 +66,42 @@ func (t *WebFetchTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *WebFetchTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *WebFetchTool) Prompt(_ *tool.UseContext) string {
+	return `Fetches content from a specified URL and processes it.
+
+Usage:
+- The URL must be a fully-formed valid URL
+- HTTP URLs will be automatically upgraded to HTTPS
+- The optional prompt parameter describes what information you want to extract from the page
+- This tool is read-only and does not modify any files
+- Results may be summarized if the content is very large
+- For GitHub URLs, prefer using the gh CLI via Bash instead (e.g., gh pr view, gh issue view, gh api)
+- Supports HTML (converted to markdown), plain text, and PDF content`
+}
+
+func (t *WebFetchTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.URL == "" {
+		return fmt.Errorf("url must not be empty")
+	}
+	u, err := url.Parse(in.URL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("URL must have a host")
+	}
+	if in.Format != "" && in.Format != "html" && in.Format != "markdown" && in.Format != "text" {
+		return fmt.Errorf("format must be \"html\", \"markdown\", or \"text\"")
+	}
+	return nil
+}
 
 func (t *WebFetchTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in Input

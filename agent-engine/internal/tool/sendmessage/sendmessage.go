@@ -26,7 +26,7 @@ func (t *SendMessageTool) Description() string {
 }
 func (t *SendMessageTool) IsReadOnly(_ json.RawMessage) bool        { return true }
 func (t *SendMessageTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
-func (t *SendMessageTool) MaxResultSizeChars() int { return 0 }
+func (t *SendMessageTool) MaxResultSizeChars() int                  { return 0 }
 func (t *SendMessageTool) IsEnabled(uctx *tool.UseContext) bool {
 	return uctx.AgentID != ""
 }
@@ -42,7 +42,27 @@ func (t *SendMessageTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *SendMessageTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *SendMessageTool) Prompt(_ *tool.UseContext) string {
+	return `Send a message to the parent agent, another agent, or broadcast to all agents.
+
+Usage:
+- Use this tool for inter-agent communication in multi-agent setups
+- Specify the "to" field with the target agent name or ID; omit to send to parent
+- Use "*" as the "to" value to broadcast to all agents
+- Messages can be plain text or structured (shutdown_request, shutdown_response, plan_approval_response)
+- Include a short summary for UI preview when sending plain text messages`
+}
+
+func (t *SendMessageTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Message == "" {
+		return fmt.Errorf("message must not be empty")
+	}
+	return nil
+}
 
 func (t *SendMessageTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in Input

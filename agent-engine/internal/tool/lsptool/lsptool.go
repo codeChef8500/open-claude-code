@@ -37,11 +37,11 @@ type Diagnostic struct {
 
 // Location represents a source code location.
 type Location struct {
-	FilePath  string `json:"filePath"`
-	Line      int    `json:"line"`
-	Col       int    `json:"col"`
-	EndLine   int    `json:"endLine,omitempty"`
-	EndCol    int    `json:"endCol,omitempty"`
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"`
+	Col      int    `json:"col"`
+	EndLine  int    `json:"endLine,omitempty"`
+	EndCol   int    `json:"endCol,omitempty"`
 }
 
 // LSPTool provides Language Server Protocol integration for code intelligence.
@@ -56,7 +56,7 @@ func New(provider LSPProvider) *LSPTool {
 }
 
 func (t *LSPTool) Name() string           { return "lsp" }
-func (t *LSPTool) UserFacingName() string  { return "LSP" }
+func (t *LSPTool) UserFacingName() string { return "LSP" }
 func (t *LSPTool) Description() string {
 	return "Access Language Server Protocol features: diagnostics, hover info, definitions, and references."
 }
@@ -65,7 +65,9 @@ func (t *LSPTool) IsReadOnly(_ json.RawMessage) bool        { return true }
 func (t *LSPTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
 func (t *LSPTool) ShouldDefer() bool                        { return true }
 func (t *LSPTool) IsLSP() bool                              { return true }
-func (t *LSPTool) SearchHint() string                       { return "get diagnostics, definitions, references from language server" }
+func (t *LSPTool) SearchHint() string {
+	return "get diagnostics, definitions, references from language server"
+}
 
 func (t *LSPTool) IsEnabled(_ *tool.UseContext) bool {
 	if t.provider == nil {
@@ -101,14 +103,20 @@ func (t *LSPTool) InputSchema() json.RawMessage {
 }
 
 func (t *LSPTool) Prompt(_ *tool.UseContext) string {
-	return `## LSP Tool
-Access Language Server Protocol features for code intelligence.
-Actions:
-  - diagnostics: Get errors, warnings for a file.
-  - hover: Get type/docs info at a position.
-  - definition: Jump to symbol definition.
-  - references: Find all references to a symbol.
-Requires an active LSP server connection.`
+	return `Interact with Language Server Protocol servers for code intelligence operations.
+
+Available operations:
+- goToDefinition: Jump to where a symbol is defined
+- findReferences: Find all references to a symbol
+- hover: Get type/documentation info for a symbol at a position
+- documentSymbol: List all symbols in a document
+- workspaceSymbol: Search for symbols across the workspace
+
+Usage:
+- Provide file_path and position (line/character, both 0-indexed) for position-based operations
+- Use this tool for precise code navigation instead of text-based grep when an LSP server is available
+- This tool is read-only and concurrent-safe
+- Requires an active LSP server connection`
 }
 
 func (t *LSPTool) CheckPermissions(_ context.Context, _ json.RawMessage, _ *tool.UseContext) error {

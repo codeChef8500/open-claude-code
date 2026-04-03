@@ -20,13 +20,13 @@ type BriefTool struct{ tool.BaseTool }
 
 func New() *BriefTool { return &BriefTool{} }
 
-func (t *BriefTool) Name() string                      { return "Brief" }
-func (t *BriefTool) UserFacingName() string            { return "brief" }
-func (t *BriefTool) Description() string               { return "Emit a structured brief or progress summary." }
-func (t *BriefTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
-func (t *BriefTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
-func (t *BriefTool) MaxResultSizeChars() int           { return 10_000 }
-func (t *BriefTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *BriefTool) Name() string                             { return "Brief" }
+func (t *BriefTool) UserFacingName() string                   { return "brief" }
+func (t *BriefTool) Description() string                      { return "Emit a structured brief or progress summary." }
+func (t *BriefTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *BriefTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
+func (t *BriefTool) MaxResultSizeChars() int                  { return 10_000 }
+func (t *BriefTool) IsEnabled(_ *tool.UseContext) bool        { return true }
 
 func (t *BriefTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -39,7 +39,9 @@ func (t *BriefTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *BriefTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *BriefTool) Prompt(_ *tool.UseContext) string {
+	return `Emit a structured brief or progress summary that callers can render specially in their UI (e.g. collapsible panel). Use this tool to provide concise status updates, summaries, or structured information to the user.`
+}
 
 func (t *BriefTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in Input

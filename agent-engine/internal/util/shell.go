@@ -15,10 +15,10 @@ const defaultTimeoutMs = 120_000 // 2 minutes
 
 // ExecOptions configures a shell command execution.
 type ExecOptions struct {
-	CWD        string
-	TimeoutMs  int
-	Env        []string // additional env vars (KEY=VALUE)
-	StdinData  string
+	CWD       string
+	TimeoutMs int
+	Env       []string // additional env vars (KEY=VALUE)
+	StdinData string
 }
 
 // ExecResult holds the output of a completed shell command.
@@ -62,13 +62,14 @@ func Exec(ctx context.Context, command string, opts *ExecOptions) (*ExecResult, 
 		env = append(env, opts.Env...)
 	}
 
-	shell, shellFlag := getShell()
+	shellArgs := getShellArgs()
 
 	// Create a child context bound by the timeout.
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 
-	cmd := exec.CommandContext(timeoutCtx, shell, shellFlag, command)
+	args := append(shellArgs[1:], command)
+	cmd := exec.CommandContext(timeoutCtx, shellArgs[0], args...)
 	cmd.Dir = cwd
 	cmd.Env = env
 
@@ -122,14 +123,23 @@ func Exec(ctx context.Context, command string, opts *ExecOptions) (*ExecResult, 
 	}, nil
 }
 
-// getShell returns the shell binary and flag to pass a command string.
-func getShell() (string, string) {
+// getShellArgs returns the shell binary and all arguments needed to execute a
+// command string. On Windows, PowerShell is preferred over cmd.exe because
+// LLMs generate bash-style commands that PowerShell handles better.
+func getShellArgs() []string {
 	if runtime.GOOS == "windows" {
-		return "cmd", "/c"
+		// Prefer pwsh (PowerShell 7+) over powershell.exe (5.1).
+		if p, err := exec.LookPath("pwsh"); err == nil {
+			return []string{p, "-NoProfile", "-NonInteractive", "-Command"}
+		}
+		if p, err := exec.LookPath("powershell"); err == nil {
+			return []string{p, "-NoProfile", "-NonInteractive", "-Command"}
+		}
+		return []string{"cmd", "/c"}
 	}
 	// Prefer $SHELL, fall back to /bin/sh.
 	if sh := os.Getenv("SHELL"); sh != "" {
-		return sh, "-c"
+		return []string{sh, "-c"}
 	}
-	return "/bin/sh", "-c"
+	return []string{"/bin/sh", "-c"}
 }

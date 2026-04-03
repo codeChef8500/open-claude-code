@@ -23,15 +23,15 @@ type NotebookEditTool struct{ tool.BaseTool }
 
 func New() *NotebookEditTool { return &NotebookEditTool{} }
 
-func (t *NotebookEditTool) Name() string                      { return "NotebookEdit" }
-func (t *NotebookEditTool) UserFacingName() string            { return "notebook_edit" }
-func (t *NotebookEditTool) Description() string               { return "Edit a Jupyter notebook cell." }
-func (t *NotebookEditTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
-func (t *NotebookEditTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
-func (t *NotebookEditTool) MaxResultSizeChars() int           { return 0 }
-func (t *NotebookEditTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *NotebookEditTool) IsDestructive(_ json.RawMessage) bool               { return true }
-func (t *NotebookEditTool) ShouldDefer() bool                 { return true }
+func (t *NotebookEditTool) Name() string                             { return "NotebookEdit" }
+func (t *NotebookEditTool) UserFacingName() string                   { return "notebook_edit" }
+func (t *NotebookEditTool) Description() string                      { return "Edit a Jupyter notebook cell." }
+func (t *NotebookEditTool) IsReadOnly(_ json.RawMessage) bool        { return false }
+func (t *NotebookEditTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
+func (t *NotebookEditTool) MaxResultSizeChars() int                  { return 0 }
+func (t *NotebookEditTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+func (t *NotebookEditTool) IsDestructive(_ json.RawMessage) bool     { return true }
+func (t *NotebookEditTool) ShouldDefer() bool                        { return true }
 func (t *NotebookEditTool) GetPath(input json.RawMessage) string {
 	var in Input
 	if err := json.Unmarshal(input, &in); err != nil {
@@ -54,7 +54,38 @@ func (t *NotebookEditTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *NotebookEditTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *NotebookEditTool) Prompt(_ *tool.UseContext) string {
+	return `Completely replaces the contents of a specific cell in a Jupyter notebook (.ipynb file) with new source. Jupyter notebooks are interactive documents that combine code, text, and visualizations, commonly used for data analysis and scientific computing. The notebook_path parameter must be an absolute path, not a relative path. The cell_number is 0-indexed. Use edit_mode=insert to add a new cell at the index specified by cell_number. Use edit_mode=delete to delete the cell at the index specified by cell_number.`
+}
+
+func (t *NotebookEditTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.NotebookPath == "" {
+		return fmt.Errorf("notebook_path must not be empty")
+	}
+	if util.IsUNCPath(in.NotebookPath) {
+		return fmt.Errorf("UNC paths are not allowed")
+	}
+	if filepath.Ext(in.NotebookPath) != ".ipynb" {
+		return fmt.Errorf("notebook_path must have .ipynb extension, got %q", filepath.Ext(in.NotebookPath))
+	}
+	if in.EditMode != "" && in.EditMode != "replace" && in.EditMode != "insert" {
+		return fmt.Errorf("edit_mode must be \"replace\" or \"insert\", got %q", in.EditMode)
+	}
+	if in.EditMode == "insert" && in.CellType == "" {
+		return fmt.Errorf("cell_type is required when edit_mode is \"insert\"")
+	}
+	if in.CellType != "" && in.CellType != "code" && in.CellType != "markdown" {
+		return fmt.Errorf("cell_type must be \"code\" or \"markdown\", got %q", in.CellType)
+	}
+	if in.CellNumber < 0 {
+		return fmt.Errorf("cell_number must be non-negative")
+	}
+	return nil
+}
 
 func (t *NotebookEditTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in Input

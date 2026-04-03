@@ -16,26 +16,26 @@ type AppConfig struct {
 	mu sync.RWMutex
 
 	// Provider settings
-	Provider      string  `json:"provider"`
-	Model         string  `json:"model"`
-	SmallModel    string  `json:"small_model"`
-	APIKey        string  `json:"-"` // never serialized
-	BaseURL       string  `json:"base_url,omitempty"`
-	MaxTokens     int     `json:"max_tokens"`
-	ThinkingBudget int    `json:"thinking_budget"`
-	Temperature   float64 `json:"temperature,omitempty"`
+	Provider       string  `json:"provider"`
+	Model          string  `json:"model"`
+	SmallModel     string  `json:"small_model"`
+	APIKey         string  `json:"-"` // never serialized
+	BaseURL        string  `json:"base_url,omitempty"`
+	MaxTokens      int     `json:"max_tokens"`
+	ThinkingBudget int     `json:"thinking_budget"`
+	Temperature    float64 `json:"temperature,omitempty"`
 
 	// Session settings
-	AutoCompact  bool    `json:"auto_compact"`
-	AutoMode     bool    `json:"auto_mode"`
-	VerboseMode  bool    `json:"verbose"`
-	PlanMode     bool    `json:"plan_mode"`
-	MaxCostUSD   float64 `json:"max_cost_usd,omitempty"`
+	AutoCompact bool    `json:"auto_compact"`
+	AutoMode    bool    `json:"auto_mode"`
+	VerboseMode bool    `json:"verbose"`
+	PlanMode    bool    `json:"plan_mode"`
+	MaxCostUSD  float64 `json:"max_cost_usd,omitempty"`
 
 	// Permission settings
-	PermissionMode  string   `json:"permission_mode"`
-	AllowedDirs     []string `json:"allowed_dirs,omitempty"`
-	DeniedCommands  []string `json:"denied_commands,omitempty"`
+	PermissionMode string   `json:"permission_mode"`
+	AllowedDirs    []string `json:"allowed_dirs,omitempty"`
+	DeniedCommands []string `json:"denied_commands,omitempty"`
 
 	// UI settings
 	DarkMode     bool   `json:"dark_mode"`
@@ -45,7 +45,7 @@ type AppConfig struct {
 	MCPServers map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
 
 	// Memory settings
-	MemoryEnabled       bool `json:"memory_enabled"`
+	MemoryEnabled        bool `json:"memory_enabled"`
 	SessionMemoryEnabled bool `json:"session_memory_enabled"`
 
 	// Network
@@ -53,19 +53,19 @@ type AppConfig struct {
 	Proxy    string `json:"proxy,omitempty"`
 
 	// Internal
-	WorkDir     string `json:"-"`
-	SessionID   string `json:"-"`
+	WorkDir     string   `json:"-"`
+	SessionID   string   `json:"-"`
 	ConfigPaths []string `json:"-"` // paths that were loaded
 }
 
 // MCPServerConfig holds config for a single MCP server.
 type MCPServerConfig struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	URL     string            `json:"url,omitempty"`
-	Type    string            `json:"type,omitempty"` // stdio, sse, http
-	Disabled bool            `json:"disabled,omitempty"`
+	Command  string            `json:"command"`
+	Args     []string          `json:"args,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	URL      string            `json:"url,omitempty"`
+	Type     string            `json:"type,omitempty"` // stdio, sse, http
+	Disabled bool              `json:"disabled,omitempty"`
 }
 
 // DefaultAppConfig returns configuration with sensible defaults.
@@ -135,21 +135,33 @@ func (c *AppConfig) loadFromFile(path string) error {
 	return nil
 }
 
-// loadFromEnv reads AGENT_ENGINE_* environment variables.
+// loadFromEnv reads AGENT_ENGINE_* environment variables and common aliases.
 func (c *AppConfig) loadFromEnv() {
-	if v := os.Getenv("AGENT_ENGINE_PROVIDER"); v != "" {
+	envOr := func(keys ...string) string {
+		for _, k := range keys {
+			if v := os.Getenv(k); v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+
+	if v := envOr("AGENT_ENGINE_PROVIDER", "LLM_PROVIDER"); v != "" {
 		c.Provider = v
 	}
-	if v := os.Getenv("AGENT_ENGINE_MODEL"); v != "" {
+	if v := envOr("AGENT_ENGINE_MODEL", "LLM_MODEL"); v != "" {
 		c.Model = v
 	}
-	if v := os.Getenv("ANTHROPIC_API_KEY"); v != "" {
+	if v := envOr("AGENT_ENGINE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+		"MINIMAX_API_KEY", "VLLM_API_KEY", "OPENROUTER_API_KEY",
+		"LLM_API_KEY", "API_KEY"); v != "" {
 		c.APIKey = v
 	}
-	if v := os.Getenv("AGENT_ENGINE_BASE_URL"); v != "" {
+	if v := envOr("AGENT_ENGINE_BASE_URL", "OPENAI_BASE_URL", "VLLM_BASE_URL",
+		"MINIMAX_BASE_URL", "LLM_BASE_URL", "BASE_URL"); v != "" {
 		c.BaseURL = v
 	}
-	if v := os.Getenv("AGENT_ENGINE_PERMISSION_MODE"); v != "" {
+	if v := envOr("AGENT_ENGINE_PERMISSION_MODE"); v != "" {
 		c.PermissionMode = v
 	}
 }

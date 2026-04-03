@@ -9,6 +9,7 @@ import (
 
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
+	"github.com/wall-ai/agent-engine/internal/util"
 )
 
 // EnterInput is the input schema for EnterWorktreeTool.
@@ -54,7 +55,29 @@ func (t *EnterWorktreeTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *EnterWorktreeTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *EnterWorktreeTool) Prompt(_ *tool.UseContext) string {
+	return `Create or switch to a git worktree for isolated branch work.
+
+Usage:
+- Use this tool to create an isolated copy of the repository for parallel development
+- Specify a branch name; use create=true to create a new branch
+- The worktree is automatically cleaned up if no changes are made
+- Useful for running agents in isolation without affecting the main working directory`
+}
+
+func (t *EnterWorktreeTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in EnterInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Branch == "" {
+		return fmt.Errorf("branch must not be empty")
+	}
+	if in.Path != "" && util.IsUNCPath(in.Path) {
+		return fmt.Errorf("UNC paths are not allowed")
+	}
+	return nil
+}
 
 func (t *EnterWorktreeTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in EnterInput
@@ -139,6 +162,20 @@ func (t *ExitWorktreeTool) InputSchema() json.RawMessage {
 }
 
 func (t *ExitWorktreeTool) Prompt(_ *tool.UseContext) string { return "" }
+
+func (t *ExitWorktreeTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in ExitInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Path == "" {
+		return fmt.Errorf("path must not be empty")
+	}
+	if util.IsUNCPath(in.Path) {
+		return fmt.Errorf("UNC paths are not allowed")
+	}
+	return nil
+}
 
 func (t *ExitWorktreeTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in ExitInput

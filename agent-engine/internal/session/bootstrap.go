@@ -15,6 +15,7 @@ import (
 	"github.com/wall-ai/agent-engine/internal/permission"
 	"github.com/wall-ai/agent-engine/internal/prompt"
 	"github.com/wall-ai/agent-engine/internal/provider"
+	"github.com/wall-ai/agent-engine/internal/toolset"
 	"github.com/wall-ai/agent-engine/internal/util"
 )
 
@@ -127,11 +128,17 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) (*BootstrapResult, erro
 		PermissionMode:     appCfg.PermissionMode,
 		CustomSystemPrompt: sysPrompt.Text,
 		Verbose:            appCfg.VerboseMode,
-	}, prov, nil)
+	}, prov, toolset.DefaultTools(nil))
 	if err != nil {
 		return nil, fmt.Errorf("create engine: %w", err)
 	}
 	result.Engine = eng
+
+	// Wire optional integrations into the engine (same as SDK path).
+	eng.SetMemoryLoader(memory.NewAdapter())
+	eng.SetSessionWriter(NewAdapter())
+	eng.SetPromptBuilder(prompt.NewAdapter())
+	eng.SetPermissionChecker(permission.NewAdapter())
 
 	// ── 6. Command executor ────────────────────────────────────────────────
 	cmdExec := command.NewExecutor(command.Default())

@@ -40,7 +40,7 @@ func New() *PowerShellTool {
 }
 
 func (t *PowerShellTool) Name() string           { return "PowerShell" }
-func (t *PowerShellTool) UserFacingName() string  { return "powershell" }
+func (t *PowerShellTool) UserFacingName() string { return "powershell" }
 func (t *PowerShellTool) Description() string {
 	return "Execute a PowerShell command and return its output. Available on Windows systems."
 }
@@ -77,12 +77,55 @@ func (t *PowerShellTool) InputSchema() json.RawMessage {
 }
 
 func (t *PowerShellTool) Prompt(_ *tool.UseContext) string {
-	return `## PowerShellTool
-Execute PowerShell commands on Windows. Commands time out after 2 minutes by default.
+	return `Executes a PowerShell command on Windows. Use this for system operations, file management, and Windows-specific tasks.
+
+Usage:
+- Commands time out after 120 seconds by default (max 600 seconds). Use the timeout parameter (in ms) for longer operations.
 - Use PowerShell cmdlets (Get-ChildItem, Select-String, etc.) instead of Unix equivalents.
+- ALWAYS use the Grep tool for search tasks instead of invoking Select-String as a PowerShell command.
+- Prefer the Edit tool for modifying existing files instead of PowerShell text manipulation.
 - Avoid interactive commands that wait for input.
-- Use the 'timeout' parameter for long-running operations.
-- Prefer non-destructive commands; ask before modifying the system.`
+- Prefer non-destructive commands — ask the user before deleting files or modifying the system.
+- Use $ErrorActionPreference = "Stop" at the start of multi-command scripts to fail fast.
+
+Git operations:
+- NEVER skip hooks (--no-verify, --no-gpg-sign, etc.) unless the user explicitly requests it.
+- Use the gh command for GitHub-related tasks.`
+}
+
+func (t *PowerShellTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Command == "" {
+		return fmt.Errorf("command must not be empty")
+	}
+	if in.TimeoutMs < 0 {
+		return fmt.Errorf("timeout must be non-negative")
+	}
+	if in.TimeoutMs > maxTimeoutMs {
+		return fmt.Errorf("timeout exceeds maximum of %d ms", maxTimeoutMs)
+	}
+	// Check for dangerous PowerShell patterns.
+	lower := strings.ToLower(in.Command)
+	for _, pattern := range dangerousPSPatterns {
+		if strings.Contains(lower, pattern) {
+			return fmt.Errorf("command contains dangerous pattern %q", pattern)
+		}
+	}
+	return nil
+}
+
+// dangerousPSPatterns are PowerShell patterns that should be blocked.
+var dangerousPSPatterns = []string{
+	"format-volume",
+	"clear-disk",
+	"initialize-disk",
+	"stop-computer",
+	"restart-computer",
+	"remove-item -recurse -force /",
+	"remove-item -recurse -force c:\\",
 }
 
 func (t *PowerShellTool) IsReadOnly(input json.RawMessage) bool {

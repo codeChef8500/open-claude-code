@@ -27,13 +27,13 @@ type TodoWriteTool struct{ tool.BaseTool }
 
 func New() *TodoWriteTool { return &TodoWriteTool{} }
 
-func (t *TodoWriteTool) Name() string                      { return "TodoWrite" }
-func (t *TodoWriteTool) UserFacingName() string            { return "todo_write" }
-func (t *TodoWriteTool) Description() string               { return "Create or update a structured todo list." }
-func (t *TodoWriteTool) IsReadOnly(_ json.RawMessage) bool                  { return false }
-func (t *TodoWriteTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
-func (t *TodoWriteTool) MaxResultSizeChars() int           { return 0 }
-func (t *TodoWriteTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *TodoWriteTool) Name() string                             { return "TodoWrite" }
+func (t *TodoWriteTool) UserFacingName() string                   { return "todo_write" }
+func (t *TodoWriteTool) Description() string                      { return "Create or update a structured todo list." }
+func (t *TodoWriteTool) IsReadOnly(_ json.RawMessage) bool        { return false }
+func (t *TodoWriteTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
+func (t *TodoWriteTool) MaxResultSizeChars() int                  { return 0 }
+func (t *TodoWriteTool) IsEnabled(_ *tool.UseContext) bool        { return true }
 
 func (t *TodoWriteTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -54,7 +54,15 @@ func (t *TodoWriteTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *TodoWriteTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *TodoWriteTool) Prompt(_ *tool.UseContext) string {
+	return `Create or update a structured todo list. Use this tool to organize tasks with different statuses and priorities.
+
+Usage:
+- Each todo item must have: id, content, status (pending/in_progress/completed), priority (high/medium/low)
+- Use this tool when you need to create a new todo list, add items, update statuses, or mark tasks as completed
+- Mark the first actionable item as in_progress to indicate current work
+- The todo list is persisted to .claude/todos.json in the working directory`
+}
 
 func (t *TodoWriteTool) CheckPermissions(_ context.Context, _ json.RawMessage, _ *tool.UseContext) error {
 	return nil

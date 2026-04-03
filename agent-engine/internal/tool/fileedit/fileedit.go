@@ -11,6 +11,7 @@ import (
 
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
+	"github.com/wall-ai/agent-engine/internal/tool/fileread"
 	"github.com/wall-ai/agent-engine/internal/util"
 )
 
@@ -76,7 +77,50 @@ func (t *FileEditTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *FileEditTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *FileEditTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"result": {"type": "string", "description": "Success message or snippet of the edited region."},
+			"file_path": {"type": "string", "description": "Absolute path of the edited file."},
+			"old_string": {"type": "string", "description": "The text that was replaced."},
+			"new_string": {"type": "string", "description": "The text that replaced old_string."}
+		}
+	}`)
+}
+
+func (t *FileEditTool) Prompt(_ *tool.UseContext) string {
+	return `Performs exact string replacements in files.
+
+Usage:
+- You must use the Read tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
+- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
+- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
+- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
+- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string.
+- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
+- The edit will FAIL if old_string and new_string are identical. This is considered a no-op and will throw an error.`
+}
+
+func (t *FileEditTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.FilePath == "" {
+		return fmt.Errorf("file_path must not be empty")
+	}
+	if in.OldString == in.NewString {
+		return fmt.Errorf("old_string and new_string are identical; this is a no-op")
+	}
+	if util.IsUNCPath(in.FilePath) {
+		return fmt.Errorf("UNC paths are not allowed")
+	}
+	if util.IsBlockedDevicePath(in.FilePath) {
+		return fmt.Errorf("cannot edit device file %q", in.FilePath)
+	}
+	return nil
+}
 
 func (t *FileEditTool) CheckPermissions(_ context.Context, input json.RawMessage, uctx *tool.UseContext) error {
 	var in Input
@@ -104,10 +148,18 @@ func (t *FileEditTool) Call(_ context.Context, input json.RawMessage, uctx *tool
 			path = filepath.Join(uctx.WorkDir, path)
 		}
 
-		// Record modification time before reading.
+		// File size guard.
 		statBefore, err := os.Stat(path)
 		if err != nil {
 			ch <- errBlock("stat file: " + err.Error())
+			return
+		}
+		if statBefore.IsDir() {
+			ch <- errBlock(fmt.Sprintf("%q is a directory, not a file", path))
+			return
+		}
+		if statBefore.Size() > util.MaxEditFileSize {
+			ch <- errBlock(fmt.Sprintf("file size %d exceeds maximum editable size (%d bytes)", statBefore.Size(), util.MaxEditFileSize))
 			return
 		}
 		modBefore := statBefore.ModTime()
@@ -145,6 +197,9 @@ func (t *FileEditTool) Call(_ context.Context, input json.RawMessage, uctx *tool
 			ch <- errBlock("write file: " + err.Error())
 			return
 		}
+
+		// Invalidate read cache so subsequent reads pick up the new content.
+		fileread.InvalidateCache(path)
 
 		ch <- &engine.ContentBlock{
 			Type: engine.ContentTypeText,

@@ -87,7 +87,7 @@ func NewWithSettings(store ConfigStore, settings []SettingDef) *ConfigTool {
 }
 
 func (t *ConfigTool) Name() string           { return "config" }
-func (t *ConfigTool) UserFacingName() string  { return "Config" }
+func (t *ConfigTool) UserFacingName() string { return "Config" }
 func (t *ConfigTool) Description() string {
 	return "View or modify configuration settings. Omit 'value' to read, provide 'value' to set."
 }
@@ -138,6 +138,19 @@ func (t *ConfigTool) Prompt(_ *tool.UseContext) string {
 		parts = append(parts, line)
 	}
 	return strings.Join(parts, "\n")
+}
+
+func (t *ConfigTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var args struct {
+		Setting string `json:"setting"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Setting == "" {
+		return fmt.Errorf("setting must not be empty")
+	}
+	return nil
 }
 
 func (t *ConfigTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {

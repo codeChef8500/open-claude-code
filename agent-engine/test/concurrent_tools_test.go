@@ -13,15 +13,15 @@ import (
 
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool/fileread"
-	"github.com/wall-ai/agent-engine/internal/tool/grep"
 	"github.com/wall-ai/agent-engine/internal/tool/glob"
+	"github.com/wall-ai/agent-engine/internal/tool/grep"
 )
 
 // TestConcurrencySafeFlag verifies that read-only tools report themselves safe.
 func TestConcurrencySafeFlag(t *testing.T) {
-	assert.True(t, fileread.New().IsConcurrencySafe(), "fileread should be concurrency-safe")
-	assert.True(t, grep.New().IsConcurrencySafe(),    "grep should be concurrency-safe")
-	assert.True(t, glob.New().IsConcurrencySafe(),    "glob should be concurrency-safe")
+	assert.True(t, fileread.New().IsConcurrencySafe(nil), "fileread should be concurrency-safe")
+	assert.True(t, grep.New().IsConcurrencySafe(nil), "grep should be concurrency-safe")
+	assert.True(t, glob.New().IsConcurrencySafe(nil), "glob should be concurrency-safe")
 }
 
 // TestParallelFileReads runs multiple fileread calls concurrently to verify

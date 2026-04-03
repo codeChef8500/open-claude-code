@@ -23,10 +23,10 @@ func (t *AskUserTool) UserFacingName() string { return "ask_user" }
 func (t *AskUserTool) Description() string {
 	return "Ask the user a question and wait for their response."
 }
-func (t *AskUserTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
-func (t *AskUserTool) IsConcurrencySafe(_ json.RawMessage) bool           { return false }
-func (t *AskUserTool) MaxResultSizeChars() int           { return 0 }
-func (t *AskUserTool) IsEnabled(_ *tool.UseContext) bool { return true }
+func (t *AskUserTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *AskUserTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
+func (t *AskUserTool) MaxResultSizeChars() int                  { return 0 }
+func (t *AskUserTool) IsEnabled(_ *tool.UseContext) bool        { return true }
 
 func (t *AskUserTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -39,7 +39,26 @@ func (t *AskUserTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *AskUserTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *AskUserTool) Prompt(_ *tool.UseContext) string {
+	return `Ask the user a question and wait for their response. Use this tool when you need clarification, confirmation, or additional information from the user before proceeding.
+
+Usage:
+- Ask clear, specific questions that help you understand the user's intent
+- Provide predefined options when the answer space is limited
+- Avoid asking unnecessary questions — use your best judgment first
+- This tool pauses execution until the user responds`
+}
+
+func (t *AskUserTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Question == "" {
+		return fmt.Errorf("question must not be empty")
+	}
+	return nil
+}
 
 func (t *AskUserTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in Input

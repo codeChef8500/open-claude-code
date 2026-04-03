@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	maxRetries    = 3
-	retryBaseMs   = 500
+	maxRetries  = 3
+	retryBaseMs = 500
 )
 
 // AnthropicProvider implements Provider (engine.ModelCaller) via the official
@@ -88,11 +88,22 @@ func (p *AnthropicProvider) call(ctx context.Context, params CallParams, ch chan
 	for _, t := range params.Tools {
 		schemaMap := toSchemaMap(t.InputSchema)
 		desc := t.Description
+		// The Anthropic SDK auto-sets type:"object". We extract "properties"
+		// for the Properties field, and pass "required" (and any other extras)
+		// via ExtraFields so the full JSON Schema is sent to the API.
+		props, _ := schemaMap["properties"]
+		extras := make(map[string]interface{})
+		if req, ok := schemaMap["required"]; ok {
+			extras["required"] = req
+		}
 		apiTools = append(apiTools, anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				Name:        t.Name,
 				Description: anthropic.String(desc),
-				InputSchema: anthropic.ToolInputSchemaParam{Properties: schemaMap},
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties:  props,
+					ExtraFields: extras,
+				},
 			},
 		})
 	}

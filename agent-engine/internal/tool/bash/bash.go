@@ -87,11 +87,39 @@ func (t *BashTool) InputSchema() json.RawMessage {
 }
 
 func (t *BashTool) Prompt(uctx *tool.UseContext) string {
-	return `## BashTool
-Run shell commands. Commands time out after 2 minutes by default.
+	return `Executes a shell command on the system. Use this for system operations, installing packages, running builds, and other command-line tasks.
+
+Usage:
+- Commands time out after 120 seconds by default. Use the timeout parameter (in ms) for longer operations.
+- ALWAYS use the Grep tool for search tasks instead of invoking grep or rg as a Bash command.
+- Prefer the Edit tool for modifying existing files instead of sed or awk.
 - Avoid interactive commands that wait for stdin.
-- Use 'timeout' parameter if you need longer execution.
-- Prefer non-destructive commands; ask before deleting files.`
+- Prefer non-destructive commands — ask the user before deleting files or modifying the system.
+- For long-running tasks (e.g., dev servers), run them in the background.
+- Use set -e at the start of multi-command scripts to fail fast.
+- Limit output to only the information needed to avoid context bloat.
+
+Git operations:
+- NEVER skip hooks (--no-verify, --no-gpg-sign, etc.) unless the user explicitly requests it.
+- Use the gh command via Bash for GitHub-related tasks including working with issues, checks, and releases.
+- Always provide a meaningful commit message that describes the changes, not just "fix" or "update".`
+}
+
+func (t *BashTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Command == "" && !in.Restart {
+		return fmt.Errorf("command must not be empty")
+	}
+	if in.Command != "" && util.IsUNCPath(in.Command) {
+		return fmt.Errorf("commands containing UNC paths are not allowed")
+	}
+	if in.Timeout < 0 {
+		return fmt.Errorf("timeout must be non-negative")
+	}
+	return nil
 }
 
 func (t *BashTool) CheckPermissions(ctx context.Context, input json.RawMessage, uctx *tool.UseContext) error {

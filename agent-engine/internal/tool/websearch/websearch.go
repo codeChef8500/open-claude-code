@@ -42,14 +42,16 @@ func New(apiKey, baseURL string) *WebSearchTool {
 	}
 }
 
-func (t *WebSearchTool) Name() string                      { return "WebSearch" }
-func (t *WebSearchTool) UserFacingName() string            { return "web_search" }
-func (t *WebSearchTool) Description() string               { return "Search the web for information." }
-func (t *WebSearchTool) IsReadOnly(_ json.RawMessage) bool                  { return true }
-func (t *WebSearchTool) IsConcurrencySafe(_ json.RawMessage) bool           { return true }
-func (t *WebSearchTool) MaxResultSizeChars() int           { return 50_000 }
-func (t *WebSearchTool) IsEnabled(_ *tool.UseContext) bool { return true }
-func (t *WebSearchTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo { return engine.SearchOrReadInfo{IsSearch: true} }
+func (t *WebSearchTool) Name() string                             { return "WebSearch" }
+func (t *WebSearchTool) UserFacingName() string                   { return "web_search" }
+func (t *WebSearchTool) Description() string                      { return "Search the web for information." }
+func (t *WebSearchTool) IsReadOnly(_ json.RawMessage) bool        { return true }
+func (t *WebSearchTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
+func (t *WebSearchTool) MaxResultSizeChars() int                  { return 50_000 }
+func (t *WebSearchTool) IsEnabled(_ *tool.UseContext) bool        { return true }
+func (t *WebSearchTool) IsSearchOrRead(_ json.RawMessage) engine.SearchOrReadInfo {
+	return engine.SearchOrReadInfo{IsSearch: true}
+}
 
 func (t *WebSearchTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
@@ -62,7 +64,32 @@ func (t *WebSearchTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *WebSearchTool) Prompt(_ *tool.UseContext) string { return "" }
+func (t *WebSearchTool) Prompt(_ *tool.UseContext) string {
+	return `Search the web for current information using a search engine.
+
+Usage:
+- Use this tool when you need up-to-date information that may not be in your training data
+- Provide clear, specific search queries for best results
+- This tool is read-only and does not modify any files
+- Results include titles, URLs, and snippets from matching web pages`
+}
+
+func (t *WebSearchTool) ValidateInput(_ context.Context, input json.RawMessage) error {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Query == "" {
+		return fmt.Errorf("query must not be empty")
+	}
+	if in.MaxResults < 0 {
+		return fmt.Errorf("max_results must be non-negative")
+	}
+	if in.MaxResults > 50 {
+		return fmt.Errorf("max_results exceeds maximum of 50")
+	}
+	return nil
+}
 
 func (t *WebSearchTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
 	var in Input
