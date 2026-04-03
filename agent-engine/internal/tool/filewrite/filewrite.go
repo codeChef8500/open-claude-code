@@ -2,13 +2,17 @@ package filewrite
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
+	"github.com/wall-ai/agent-engine/internal/tool/diff"
 	"github.com/wall-ai/agent-engine/internal/tool/fileread"
 	"github.com/wall-ai/agent-engine/internal/util"
 )
@@ -84,14 +88,15 @@ func (t *FileWriteTool) OutputSchema() json.RawMessage {
 }
 
 func (t *FileWriteTool) Prompt(_ *tool.UseContext) string {
-	return `Writes a file to the local filesystem.
+	return `Writes a file to the local filesystem. The file and any parent directories will be created for you if they do not already exist.
 
 Usage:
 - This tool will overwrite the existing file if there is one at the provided path.
 - If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.
 - Prefer the Edit tool for modifying existing files — it only sends the diff. Only use this tool to create new files or for complete rewrites.
 - NEVER create documentation files (*.md) or README files unless explicitly requested by the User.
-- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.`
+- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.
+IMPORTANT: You must generate the following arguments first, before any others: [file_path]`
 }
 
 func (t *FileWriteTool) ValidateInput(_ context.Context, input json.RawMessage) error {
@@ -138,8 +143,12 @@ func (t *FileWriteTool) Call(_ context.Context, input json.RawMessage, uctx *too
 		}
 
 		// If file exists, require that it was previously read.
+		var oldContent string
+		var isExisting bool
 		if _, statErr := os.Stat(path); statErr == nil {
-			if _, wasCached := fileread.GetCached(path); !wasCached {
+			isExisting = true
+			cached, wasCached := fileread.GetCached(path)
+			if !wasCached {
 				ch <- &engine.ContentBlock{
 					Type:    engine.ContentTypeText,
 					Text:    fmt.Sprintf("You must read the file before overwriting it. Use the Read tool on %s first.", path),
@@ -147,6 +156,7 @@ func (t *FileWriteTool) Call(_ context.Context, input json.RawMessage, uctx *too
 				}
 				return
 			}
+			oldContent = cached
 		}
 
 		if err := util.WriteTextContent(path, in.Content); err != nil {
@@ -157,9 +167,40 @@ func (t *FileWriteTool) Call(_ context.Context, input json.RawMessage, uctx *too
 		// Invalidate read cache so subsequent reads pick up the new content.
 		fileread.InvalidateCache(path)
 
+		// Track file history.
+		if uctx.UpdateFileHistoryState != nil {
+			hash := sha256.Sum256([]byte(in.Content))
+			uctx.UpdateFileHistoryState(func(prev *engine.FileHistoryState) *engine.FileHistoryState {
+				if prev == nil {
+					prev = &engine.FileHistoryState{Files: make(map[string][]engine.FileSnapshot)}
+				}
+				if prev.Files == nil {
+					prev.Files = make(map[string][]engine.FileSnapshot)
+				}
+				prev.Files[path] = append(prev.Files[path], engine.FileSnapshot{
+					Timestamp: time.Now().UnixMilli(),
+					Hash:      hex.EncodeToString(hash[:]),
+					ToolUseID: uctx.ToolUseID,
+					ToolName:  "Write",
+				})
+				return prev
+			})
+		}
+
+		// Build result with optional diff.
+		result := fmt.Sprintf("Successfully wrote %d bytes to %s", len(in.Content), path)
+		if isExisting {
+			d := diff.Compute(oldContent, in.Content, path)
+			if d.HasChanges() {
+				result += "\n" + d.Format()
+			}
+		} else {
+			result += " (new file)"
+		}
+
 		ch <- &engine.ContentBlock{
 			Type: engine.ContentTypeText,
-			Text: fmt.Sprintf("Successfully wrote %d bytes to %s", len(in.Content), path),
+			Text: result,
 		}
 	}()
 	return ch, nil

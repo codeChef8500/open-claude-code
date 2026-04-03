@@ -2,34 +2,90 @@ package message
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/wall-ai/agent-engine/internal/tui/color"
 )
 
 // RenderOpts controls how messages are rendered.
 type RenderOpts struct {
-	Width       int
-	Dark        bool
+	Width         int
+	Dark          bool
 	ShowTimestamp bool
-	Collapsed   bool
+	Collapsed     bool
+	Styles        *MessageStyles
 }
 
-// Styles used for message rendering.
-var (
-	userPrefix     = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	assistantPrefix = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	systemPrefix   = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Italic(true)
-	errorPrefix    = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-	toolUsePrefix  = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Italic(true)
-	toolResultStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	thinkingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
-	compactStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	dimStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	errorResultStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	treeConnector  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-)
+// MessageStyles holds theme-aware styles for message rendering.
+// These are built from the themes.Theme color values to match claude-code-main.
+type MessageStyles struct {
+	Dot        lipgloss.Style // ● prefix color (theme.Claude)
+	DotBold    lipgloss.Style // ● prefix for user (bold)
+	Connector  lipgloss.Style // ⎿ connector (faint/dim)
+	Dim        lipgloss.Style // dim text
+	Error      lipgloss.Style // error text (theme.Error)
+	ErrorBold  lipgloss.Style // error prefix bold
+	System     lipgloss.Style // system text (theme.Suggestion)
+	ToolResult lipgloss.Style // tool result dim
+	Thinking   lipgloss.Style // thinking text italic dim
+	Compact    lipgloss.Style // compact boundary dim
+	ToolIcon   lipgloss.Style // tool icon (theme.Claude)
+}
+
+// DefaultMessageStyles returns styles using hardcoded dark-theme ANSI colors
+// as a fallback when no theme is provided.
+func DefaultMessageStyles() *MessageStyles {
+	return &MessageStyles{
+		Dot:        lipgloss.NewStyle().Foreground(lipgloss.Color("#d77757")),
+		DotBold:    lipgloss.NewStyle().Foreground(lipgloss.Color("#d77757")).Bold(true),
+		Connector:  lipgloss.NewStyle().Faint(true),
+		Dim:        lipgloss.NewStyle().Faint(true),
+		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b80")),
+		ErrorBold:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b80")).Bold(true),
+		System:     lipgloss.NewStyle().Foreground(lipgloss.Color("#6495ed")).Italic(true),
+		ToolResult: lipgloss.NewStyle().Faint(true),
+		Thinking:   lipgloss.NewStyle().Faint(true).Italic(true),
+		Compact:    lipgloss.NewStyle().Faint(true),
+		ToolIcon:   lipgloss.NewStyle().Foreground(lipgloss.Color("#d77757")),
+	}
+}
+
+// NewMessageStyles builds MessageStyles from theme color strings.
+func NewMessageStyles(claude, errorC, suggestion, inactive string) *MessageStyles {
+	c := func(s string) lipgloss.Color { return color.Resolve(s) }
+	return &MessageStyles{
+		Dot:        lipgloss.NewStyle().Foreground(c(claude)),
+		DotBold:    lipgloss.NewStyle().Foreground(c(claude)).Bold(true),
+		Connector:  lipgloss.NewStyle().Faint(true),
+		Dim:        lipgloss.NewStyle().Foreground(c(inactive)),
+		Error:      lipgloss.NewStyle().Foreground(c(errorC)),
+		ErrorBold:  lipgloss.NewStyle().Foreground(c(errorC)).Bold(true),
+		System:     lipgloss.NewStyle().Foreground(c(suggestion)).Italic(true),
+		ToolResult: lipgloss.NewStyle().Foreground(c(inactive)),
+		Thinking:   lipgloss.NewStyle().Foreground(c(inactive)).Italic(true),
+		Compact:    lipgloss.NewStyle().Foreground(c(inactive)),
+		ToolIcon:   lipgloss.NewStyle().Foreground(c(claude)),
+	}
+}
+
+// blackCircle returns the platform-appropriate filled circle glyph.
+func blackCircle() string {
+	if runtime.GOOS == "darwin" {
+		return "⏺"
+	}
+	return "●"
+}
+
+// styles returns the MessageStyles from opts, or defaults.
+func (o RenderOpts) styles() *MessageStyles {
+	if o.Styles != nil {
+		return o.Styles
+	}
+	return DefaultMessageStyles()
+}
 
 // RenderMessageRow renders a single message for display.
 func RenderMessageRow(msg RenderableMessage, opts RenderOpts) string {
@@ -56,75 +112,106 @@ func RenderMessageRow(msg RenderableMessage, opts RenderOpts) string {
 }
 
 // RenderUserMessage renders a user message.
-// Format: ❯ You: <content>
+// Format: ❯ <content>  (no "You:" label, matching claude-code-main)
 func RenderUserMessage(msg RenderableMessage, opts RenderOpts) string {
-	prefix := userPrefix.Render("❯ You")
+	s := opts.styles()
+	prefix := s.DotBold.Render("❯")
 	text := msg.PlainText()
 	if opts.ShowTimestamp {
-		ts := dimStyle.Render(msg.Timestamp.Format("15:04"))
+		ts := s.Dim.Render(msg.Timestamp.Format("15:04"))
 		return fmt.Sprintf("%s %s\n%s", prefix, ts, text)
 	}
-	return fmt.Sprintf("%s\n%s", prefix, text)
+	return fmt.Sprintf("%s %s", prefix, text)
 }
 
 // RenderAssistantMessage renders an assistant message.
-// Format: ⏺ Assistant:\n<markdown content>
+// Format: ● <content>  (using BlackCircle + theme.Claude, no "Assistant:" label)
+// Subsequent lines use the ⎿ connector for indentation.
 func RenderAssistantMessage(msg RenderableMessage, opts RenderOpts) string {
-	prefix := assistantPrefix.Render("⏺ Assistant")
-	var sb strings.Builder
-	sb.WriteString(prefix)
-	if opts.ShowTimestamp {
-		sb.WriteString(" ")
-		sb.WriteString(dimStyle.Render(msg.Timestamp.Format("15:04")))
-	}
-	sb.WriteString("\n")
+	s := opts.styles()
+	connector := s.Connector.Render("  ⎿  ")
 
+	var sb strings.Builder
+
+	firstLine := true
 	for _, block := range msg.Content {
 		switch block.Type {
 		case BlockText:
-			sb.WriteString(block.Text)
-			sb.WriteString("\n")
+			lines := strings.Split(block.Text, "\n")
+			for _, line := range lines {
+				if firstLine {
+					sb.WriteString(s.Dot.Render(blackCircle()))
+					sb.WriteString(" ")
+					sb.WriteString(line)
+					if opts.ShowTimestamp {
+						sb.WriteString(" ")
+						sb.WriteString(s.Dim.Render(msg.Timestamp.Format("15:04")))
+					}
+					sb.WriteString("\n")
+					firstLine = false
+				} else {
+					sb.WriteString(connector)
+					sb.WriteString(line)
+					sb.WriteString("\n")
+				}
+			}
 		case BlockThinking:
-			sb.WriteString(thinkingStyle.Render("  💭 "+truncateLines(block.Thinking, 3)))
+			sb.WriteString(connector)
+			sb.WriteString(s.Thinking.Render("💭 " + truncateLines(block.Thinking, 3)))
 			sb.WriteString("\n")
 		case BlockToolUse:
 			if block.ToolUse != nil {
-				sb.WriteString(toolUsePrefix.Render("  ⚙ "+block.ToolUse.Name))
+				sb.WriteString(connector)
+				sb.WriteString(s.ToolIcon.Render("⚙ " + block.ToolUse.Name))
 				sb.WriteString("\n")
 			}
 		}
 	}
+
+	// If no content blocks produced output, render a simple dot
+	if firstLine {
+		sb.WriteString(s.Dot.Render(blackCircle()))
+		sb.WriteString(" ")
+		sb.WriteString(msg.PlainText())
+	}
+
 	return strings.TrimRight(sb.String(), "\n")
 }
 
 // RenderSystemMessage renders a system notification.
 func RenderSystemMessage(msg RenderableMessage, opts RenderOpts) string {
-	return systemPrefix.Render("▶ " + msg.PlainText())
+	s := opts.styles()
+	return s.System.Render("▶ " + msg.PlainText())
 }
 
 // RenderErrorMessage renders an error message.
 func RenderErrorMessage(msg RenderableMessage, opts RenderOpts) string {
-	return errorPrefix.Render("⚠ " + msg.PlainText())
+	s := opts.styles()
+	return s.ErrorBold.Render("⚠ " + msg.PlainText())
 }
 
 // RenderToolUseMessage renders a tool call start.
-// Format: ⚙ <ToolName> <summary>
+// Format: ● <ToolDisplayName>\n  ⎿  <summary>
 func RenderToolUseMessage(msg RenderableMessage, opts RenderOpts) string {
+	s := opts.styles()
 	name := msg.ToolName
 	if name == "" {
 		name = "tool"
 	}
+	display := toolDisplayName(name)
 
 	var sb strings.Builder
-	sb.WriteString(toolUsePrefix.Render("⚙ " + name))
+	sb.WriteString(s.Dot.Render(blackCircle()))
+	sb.WriteString(" ")
+	sb.WriteString(s.ToolIcon.Render(display))
 
 	// Show summarized input
 	if msg.ToolInput != nil {
 		summary := summarizeToolInput(name, msg.ToolInput, opts.Width-10)
 		if summary != "" {
 			sb.WriteString("\n")
-			sb.WriteString(treeConnector.Render("  ⎿ "))
-			sb.WriteString(dimStyle.Render(summary))
+			sb.WriteString(s.Connector.Render("  ⎿  "))
+			sb.WriteString(s.Dim.Render(summary))
 		}
 	}
 
@@ -132,73 +219,103 @@ func RenderToolUseMessage(msg RenderableMessage, opts RenderOpts) string {
 }
 
 // RenderToolResultMessage renders a tool result.
-// Format:   ⎿ <output or error>
+// Format:   ⎿  <output or error>
 func RenderToolResultMessage(msg RenderableMessage, opts RenderOpts) string {
+	s := opts.styles()
 	output := msg.ToolResult
 	if output == "" {
 		output = msg.PlainText()
 	}
 
-	connector := treeConnector.Render("  ⎿ ")
+	connector := s.Connector.Render("  ⎿  ")
 
 	if msg.IsError {
-		return connector + errorResultStyle.Render(truncateLines(output, 5))
+		return connector + s.Error.Render(truncateLines(output, 5))
 	}
 
 	// Collapse long output
 	lines := strings.Split(output, "\n")
 	if len(lines) > 8 && opts.Collapsed {
 		visible := strings.Join(lines[:3], "\n")
-		return connector + toolResultStyle.Render(visible) + "\n" +
-			dimStyle.Render(fmt.Sprintf("    … (%d lines collapsed)", len(lines)-3))
+		return connector + s.ToolResult.Render(visible) + "\n" +
+			s.Dim.Render(fmt.Sprintf("     … (%d lines collapsed)", len(lines)-3))
 	}
 
 	if len(lines) > 20 {
 		visible := strings.Join(lines[:10], "\n")
-		return connector + toolResultStyle.Render(visible) + "\n" +
-			dimStyle.Render(fmt.Sprintf("    … (%d more lines)", len(lines)-10))
+		return connector + s.ToolResult.Render(visible) + "\n" +
+			s.Dim.Render(fmt.Sprintf("     … (%d more lines)", len(lines)-10))
 	}
 
-	return connector + toolResultStyle.Render(output)
+	return connector + s.ToolResult.Render(output)
 }
 
 // RenderThinkingMessage renders a thinking block.
 func RenderThinkingMessage(msg RenderableMessage, opts RenderOpts) string {
+	s := opts.styles()
 	text := msg.ThinkingText
 	if text == "" {
 		text = msg.PlainText()
 	}
-	return thinkingStyle.Render("  💭 " + truncateLines(text, 3))
+	connector := s.Connector.Render("  ⎿  ")
+	return connector + s.Thinking.Render("💭 "+truncateLines(text, 3))
 }
 
 // RenderCompactBoundary renders a context compaction boundary.
 func RenderCompactBoundary(opts RenderOpts) string {
+	s := opts.styles()
 	w := opts.Width
 	if w < 10 {
 		w = 60
 	}
 	line := strings.Repeat("─", w)
-	return compactStyle.Render(line + "\n" + "  Context compacted above this line" + "\n" + line)
+	return s.Compact.Render(line + "\n" + "  Context compacted above this line" + "\n" + line)
 }
 
 // RenderStreamingToolUse renders an in-progress tool use.
 func RenderStreamingToolUse(stu StreamingToolUse, opts RenderOpts) string {
+	s := opts.styles()
 	elapsed := time.Since(stu.Started).Truncate(time.Second)
-	header := toolUsePrefix.Render(fmt.Sprintf("⚙ %s", stu.Name))
+	display := toolDisplayName(stu.Name)
+	header := s.Dot.Render(blackCircle()) + " " + s.ToolIcon.Render(display)
 
 	if stu.Finished {
+		connector := s.Connector.Render("  ⎿  ")
 		if stu.IsError {
-			return header + "\n" + treeConnector.Render("  ✗ ") +
-				errorResultStyle.Render(truncateLines(stu.Output, 5))
+			return header + "\n" + connector + s.Error.Render(truncateLines(stu.Output, 5))
 		}
-		return header + "\n" + treeConnector.Render("  ⎿ ") +
-			toolResultStyle.Render(truncateLines(stu.Output, 5))
+		return header + "\n" + connector + s.ToolResult.Render(truncateLines(stu.Output, 5))
 	}
 
-	return header + dimStyle.Render(fmt.Sprintf(" (%s)", elapsed))
+	return header + s.Dim.Render(fmt.Sprintf(" (%s)", elapsed))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// toolDisplayName returns a human-readable display name for a tool,
+// matching claude-code-main's tool display style.
+func toolDisplayName(name string) string {
+	switch name {
+	case "Bash", "bash":
+		return "Running command"
+	case "Read", "read":
+		return "Reading file"
+	case "Edit", "edit":
+		return "Editing file"
+	case "Write", "write":
+		return "Writing file"
+	case "Glob", "glob":
+		return "Searching files"
+	case "Grep", "grep":
+		return "Searching content"
+	case "WebSearch", "web_search":
+		return "Searching web"
+	case "WebFetch", "web_fetch":
+		return "Fetching URL"
+	default:
+		return name
+	}
+}
 
 // summarizeToolInput generates a human-readable summary of tool input.
 func summarizeToolInput(toolName string, input map[string]interface{}, maxWidth int) string {

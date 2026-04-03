@@ -10,20 +10,20 @@ import (
 
 // StatusData holds all data displayed in the status line.
 type StatusData struct {
-	Model          string
-	Provider       string
-	CostUSD        float64
-	InputTokens    int
-	OutputTokens   int
+	Model           string
+	Provider        string
+	CostUSD         float64
+	InputTokens     int
+	OutputTokens    int
 	CacheReadTokens int
-	ContextPct     float64  // 0.0 - 1.0
-	PermissionMode string
-	WorkDir        string
-	SessionName    string
-	TurnCount      int
-	IsLoading      bool
-	LoadingStart   time.Time
-	ToolActive     string   // name of active tool, if any
+	ContextPct      float64 // 0.0 - 1.0
+	PermissionMode  string
+	WorkDir         string
+	SessionName     string
+	TurnCount       int
+	IsLoading       bool
+	LoadingStart    time.Time
+	ToolActive      string // name of active tool, if any
 }
 
 // Theme holds styles for the status line.
@@ -39,19 +39,20 @@ type Theme struct {
 	Active     lipgloss.Style
 }
 
-// DefaultDarkTheme returns a dark-mode status line theme.
+// DefaultDarkTheme returns a dark-mode status line theme matching
+// claude-code-main's color palette.
 func DefaultDarkTheme() Theme {
 	bg := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("250"))
 	return Theme{
 		Background: bg.Padding(0, 1),
-		Model:      bg.Foreground(lipgloss.Color("15")).Bold(true),
-		Cost:       bg.Foreground(lipgloss.Color("10")),
-		Context:    bg.Foreground(lipgloss.Color("14")),
-		Mode:       bg.Foreground(lipgloss.Color("11")),
-		Path:       bg.Foreground(lipgloss.Color("240")),
-		Dim:        bg.Foreground(lipgloss.Color("240")),
-		Warning:    bg.Foreground(lipgloss.Color("9")).Bold(true),
-		Active:     bg.Foreground(lipgloss.Color("205")),
+		Model:      bg.Foreground(lipgloss.Color("#ffffff")).Bold(true),
+		Cost:       bg.Foreground(lipgloss.Color("#4eba65")),
+		Context:    bg.Foreground(lipgloss.Color("#6495ed")),
+		Mode:       bg.Foreground(lipgloss.Color("#b1b9f9")),
+		Path:       bg.Foreground(lipgloss.Color("#666666")),
+		Dim:        bg.Foreground(lipgloss.Color("#666666")),
+		Warning:    bg.Foreground(lipgloss.Color("#ff6b80")).Bold(true),
+		Active:     bg.Foreground(lipgloss.Color("#d77757")),
 	}
 }
 
@@ -110,7 +111,9 @@ func Render(data StatusData, width int, theme Theme) string {
 	return theme.Background.Width(width).Render(left + strings.Repeat(" ", gap) + right)
 }
 
-// renderContextBar builds a mini progress bar for context usage.
+// renderContextBar builds a mini progress bar for context usage using
+// Unicode block characters, matching claude-code-main's context bar style.
+// Color thresholds: <70% normal, 70-90% warning-ish, >90% red.
 func renderContextBar(pct float64, barWidth int, theme Theme) string {
 	if pct > 1.0 {
 		pct = 1.0

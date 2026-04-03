@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ledongthuc/pdf"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/tool"
 	"github.com/wall-ai/agent-engine/internal/util"
@@ -38,6 +39,7 @@ type Input struct {
 	FilePath string `json:"file_path"`
 	Offset   int    `json:"offset,omitempty"`
 	Limit    int    `json:"limit,omitempty"`
+	Pages    string `json:"pages,omitempty"` // e.g. "1-5" for PDF page ranges
 }
 
 type FileReadTool struct{ tool.BaseTool }
@@ -101,9 +103,12 @@ Usage:
 - By default, it reads up to 2000 lines starting from the beginning of the file
 - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
 - Results are returned using cat -n format, with line numbers starting at 1
-- This tool allows reading images (e.g. PNG, JPG, etc). When reading an image file the contents are presented visually as this is a multimodal LLM.
+- Any lines longer than 2000 characters will be truncated
+- This tool allows reading images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as this is a multimodal LLM.
+- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you MUST provide the pages parameter to read specific page ranges (e.g., pages: "1-5"). Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request.
 - This tool can read Jupyter notebooks (.ipynb files) and returns all cells with their outputs, combining code, text, and visualizations.
-- This tool can only read files, not directories. To list a directory, use an ls command via the Bash tool.
+- This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
+- You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.
 - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.`
 }
 
@@ -182,6 +187,34 @@ func (t *FileReadTool) Call(_ context.Context, input json.RawMessage, uctx *tool
 				return
 			}
 			ch <- block
+			return
+		}
+
+		// Check if it's a PDF
+		if isPDFFile(path) {
+			text, err := readPDFFile(path, in.Pages)
+			if err != nil {
+				ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: err.Error(), IsError: true}
+				return
+			}
+			if len(text) > maxChars {
+				text = text[:maxChars] + "\n[... truncated ...]"
+			}
+			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: text}
+			return
+		}
+
+		// Check if it's a Jupyter notebook
+		if isNotebookFile(path) {
+			text, err := readNotebookFile(path)
+			if err != nil {
+				ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: err.Error(), IsError: true}
+				return
+			}
+			if len(text) > maxChars {
+				text = text[:maxChars] + "\n[... truncated ...]"
+			}
+			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: text}
 			return
 		}
 
@@ -313,4 +346,140 @@ func readImageFile(path string) (*engine.ContentBlock, error) {
 		MediaType: mediaType,
 		Data:      base64.StdEncoding.EncodeToString(data),
 	}, nil
+}
+
+func isPDFFile(path string) bool {
+	return strings.ToLower(filepath.Ext(path)) == ".pdf"
+}
+
+func readPDFFile(path, pages string) (string, error) {
+	f, r, err := pdf.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open PDF: %w", err)
+	}
+	defer f.Close()
+
+	totalPages := r.NumPage()
+	if totalPages == 0 {
+		return "[Empty PDF document]", nil
+	}
+
+	// Parse page range.
+	startPage, endPage := 1, totalPages
+	if pages != "" {
+		_, _ = fmt.Sscanf(pages, "%d-%d", &startPage, &endPage)
+		if startPage < 1 {
+			startPage = 1
+		}
+		if endPage > totalPages {
+			endPage = totalPages
+		}
+		if endPage-startPage+1 > 20 {
+			endPage = startPage + 19
+		}
+	} else if totalPages > 10 {
+		return "", fmt.Errorf("PDF has %d pages (max 10 without pages parameter). Use pages parameter e.g. pages=\"1-5\"", totalPages)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[PDF: %s — %d total pages, showing pages %d-%d]\n\n", filepath.Base(path), totalPages, startPage, endPage))
+
+	for i := startPage; i <= endPage; i++ {
+		p := r.Page(i)
+		if p.V.IsNull() {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("--- Page %d ---\n", i))
+		text, err := p.GetPlainText(nil)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("[Error reading page %d: %v]\n", i, err))
+			continue
+		}
+		sb.WriteString(text)
+		sb.WriteString("\n")
+	}
+
+	return sb.String(), nil
+}
+
+func isNotebookFile(path string) bool {
+	return strings.ToLower(filepath.Ext(path)) == ".ipynb"
+}
+
+// notebookJSON mirrors the minimal .ipynb structure we need.
+type notebookJSON struct {
+	Cells []notebookCell `json:"cells"`
+}
+type notebookCell struct {
+	CellType string           `json:"cell_type"`
+	Source   json.RawMessage  `json:"source"`
+	Outputs  []notebookOutput `json:"outputs,omitempty"`
+}
+type notebookOutput struct {
+	OutputType string                     `json:"output_type"`
+	Text       json.RawMessage            `json:"text,omitempty"`
+	Data       map[string]json.RawMessage `json:"data,omitempty"`
+}
+
+func readNotebookFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read notebook: %w", err)
+	}
+
+	var nb notebookJSON
+	if err := json.Unmarshal(data, &nb); err != nil {
+		return "", fmt.Errorf("parse notebook JSON: %w", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[Jupyter Notebook: %s — %d cells]\n\n", filepath.Base(path), len(nb.Cells)))
+
+	for i, cell := range nb.Cells {
+		sb.WriteString(fmt.Sprintf("─── Cell %d [%s] ───\n", i, cell.CellType))
+		source := decodeNotebookStrOrArray(cell.Source)
+		sb.WriteString(source)
+		if !strings.HasSuffix(source, "\n") {
+			sb.WriteString("\n")
+		}
+
+		for _, out := range cell.Outputs {
+			switch out.OutputType {
+			case "stream", "execute_result", "display_data":
+				if out.Text != nil {
+					sb.WriteString("[Output]\n")
+					sb.WriteString(decodeNotebookStrOrArray(out.Text))
+					sb.WriteString("\n")
+				}
+				if textData, ok := out.Data["text/plain"]; ok {
+					sb.WriteString("[Output]\n")
+					sb.WriteString(decodeNotebookStrOrArray(textData))
+					sb.WriteString("\n")
+				}
+			case "error":
+				sb.WriteString("[Error Output]\n")
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String(), nil
+}
+
+// decodeNotebookStrOrArray handles ipynb source/text which can be a string or []string.
+func decodeNotebookStrOrArray(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	// Try as string first.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	// Try as array of strings.
+	var arr []string
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return strings.Join(arr, "")
+	}
+	return string(raw)
 }

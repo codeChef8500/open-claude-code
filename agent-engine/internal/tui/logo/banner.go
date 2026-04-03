@@ -1,7 +1,6 @@
 package logo
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -19,12 +18,29 @@ type BannerData struct {
 	Agent   string // optional agent/teammate name
 }
 
-// RenderCondensedBanner renders the compact startup banner:
+// RenderCondensedBanner renders the compact startup banner wrapped in a
+// rounded border with the Claude theme color, matching claude-code-main's
+// CondensedLogo component:
 //
-//	[Clawd]  Claude Code v1.0.0
-//	         sonnet-4 · API
-//	         /path/to/cwd
+//	╭──────────────────────────────────────╮
+//	│ [Clawd]  Claude Code v1.0.0         │
+//	│          sonnet-4 · API              │
+//	│          /path/to/cwd                │
+//	╰──────────────────────────────────────╯
 func RenderCondensedBanner(data BannerData, theme themes.Theme, width int) string {
+	content := renderBannerContent(data, theme, width)
+
+	c := func(s string) lipgloss.Color { return color.Resolve(s) }
+	borderBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(c(theme.Claude)).
+		Width(width - 2)
+
+	return borderBox.Render(content)
+}
+
+// renderBannerContent builds the inner content of the banner (Clawd + info).
+func renderBannerContent(data BannerData, theme themes.Theme, width int) string {
 	clawd := RenderClawd(PoseDefault, theme)
 	clawdLines := strings.Split(clawd, "\n")
 
@@ -55,10 +71,15 @@ func RenderCondensedBanner(data BannerData, theme themes.Theme, width int) strin
 		infoLines = append(infoLines, subtleStyle.Render(strings.Join(modelParts, " · ")))
 	}
 
-	// Line 3: cwd
+	// Line 3: agent (optional) · cwd
 	if data.CWD != "" {
-		cwd := shortenCWD(data.CWD, width-14)
-		infoLines = append(infoLines, subtleStyle.Render(cwd))
+		var cwdLine string
+		if data.Agent != "" {
+			cwdLine = "@" + data.Agent + " · " + shortenCWD(data.CWD, width-20-len(data.Agent))
+		} else {
+			cwdLine = shortenCWD(data.CWD, width-14)
+		}
+		infoLines = append(infoLines, subtleStyle.Render(cwdLine))
 	}
 
 	// Compose: clawd lines on the left, info lines on the right
@@ -92,15 +113,27 @@ func RenderCondensedBanner(data BannerData, theme themes.Theme, width int) strin
 	return strings.Join(result, "\n")
 }
 
-// RenderFullBanner renders a larger welcome banner with decorative lines.
+// RenderFullBanner renders the full welcome banner with a welcome message
+// above the condensed banner, matching claude-code-main's LogoV2 component.
 func RenderFullBanner(data BannerData, theme themes.Theme, width int) string {
 	c := func(s string) lipgloss.Color { return color.Resolve(s) }
-	borderStyle := lipgloss.NewStyle().Foreground(c(theme.Subtle))
-	line := borderStyle.Render(strings.Repeat("─", width))
 
-	banner := RenderCondensedBanner(data, theme, width)
+	// Welcome line
+	welcomeStyle := lipgloss.NewStyle().Foreground(c(theme.Text)).Bold(true)
+	welcome := welcomeStyle.Render("Welcome to Claude Code!")
 
-	return fmt.Sprintf("%s\n%s\n%s", line, banner, line)
+	content := renderBannerContent(data, theme, width)
+
+	// Combine welcome + content inside rounded border
+	fullContent := welcome + "\n\n" + content
+
+	borderBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(c(theme.Claude)).
+		Width(width - 2).
+		PaddingLeft(1).PaddingRight(1)
+
+	return borderBox.Render(fullContent)
 }
 
 // shortenCWD shortens a working directory path if it exceeds maxLen.

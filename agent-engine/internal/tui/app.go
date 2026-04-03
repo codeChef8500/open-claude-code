@@ -85,7 +85,7 @@ func NewApp(cfg AppConfig) (*App, error) {
 	km := DefaultKeyMap()
 
 	ta := textarea.New()
-	ta.Placeholder = "Type a message… (Enter to send, Ctrl+C to quit)"
+	ta.Placeholder = "Reply to Claude…"
 	ta.Focus()
 	ta.SetWidth(80)
 	ta.SetHeight(3)
@@ -207,7 +207,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.status = "Thinking…"
 			a.isLoading = true
 			a.loadingStart = time.Now()
-			a.spinner.Show("thinking…")
+			a.spinner.ShowRandom()
 			a.refreshViewport()
 			a.viewport.GotoBottom()
 			if a.SubmitFn != nil {
@@ -278,7 +278,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content: msg.ToolName + " " + msg.Input,
 		})
 		a.toolTrack.StartTool(msg.ToolID, msg.ToolName, msg.Input)
-		a.spinner.Show(msg.ToolName + "…")
+		a.spinner.SetLabel(msg.ToolName + "…")
 		a.transcript.Append(sess.TranscriptEntry{
 			Timestamp: time.Now(), Role: "tool_use",
 			ToolName: msg.ToolName, Content: msg.Input,
@@ -287,16 +287,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.viewport.GotoBottom()
 
 	case ToolDoneMsg:
-		prefix := "  ⎿ "
-		if msg.IsError {
-			prefix = "  ✗ "
-		}
 		a.messages = append(a.messages, ChatMessage{
 			Role:    "tool_result",
-			Content: prefix + truncateOutput(msg.Output, 200),
+			Content: truncateOutput(msg.Output, 200),
 		})
 		a.toolTrack.FinishTool(msg.ToolID, msg.Output, msg.IsError)
-		a.spinner.Show("thinking…")
+		a.spinner.ShowRandom()
 		a.transcript.Append(sess.TranscriptEntry{
 			Timestamp: time.Now(), Role: "tool_result",
 			Content: msg.Output, IsError: msg.IsError,
@@ -386,7 +382,19 @@ func (a *App) renderStatusLine() string {
 }
 
 func (a *App) renderInput() string {
-	return a.textarea.View()
+	w := a.layout.BodyWidth()
+	inputView := a.textarea.View()
+
+	// Wrap in top-only round border (claude-code-main style)
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(a.theme.Border.GetBorderBottomForeground()).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		Width(w - 2)
+
+	return borderStyle.Render(inputView)
 }
 
 func (a *App) renderFooter() string {
@@ -394,10 +402,9 @@ func (a *App) renderFooter() string {
 
 	var parts []string
 
-	// Spinner or status
+	// Spinner or status (spinnerv2 handles elapsed time internally)
 	if a.spinner.IsVisible() {
-		elapsed := time.Since(a.loadingStart).Truncate(time.Second)
-		parts = append(parts, a.spinner.View()+a.theme.Dimmed.Render(fmt.Sprintf(" (%s)", elapsed)))
+		parts = append(parts, a.spinner.View())
 	} else {
 		parts = append(parts, a.theme.Dimmed.Render(a.status))
 	}
@@ -445,23 +452,33 @@ func (a *App) refreshViewport() {
 }
 
 func (a *App) renderMessages() string {
+	dot := a.theme.Assistant.Render(appBlackCircle())
+	connector := a.theme.Dimmed.Render("  ⎿  ")
+
 	var sb strings.Builder
 	for _, m := range a.messages {
 		var line string
 		switch m.Role {
 		case "user":
-			line = a.theme.User.Render("❯ You: ") + m.Content
+			line = a.theme.User.Render("❯") + " " + m.Content
 		case "assistant":
 			rendered := a.md.Render(m.Content)
-			line = a.theme.Assistant.Render("⏺ Assistant:") + "\n" + rendered
+			// First line gets ●, subsequent lines get ⎿ connector
+			parts := strings.SplitN(rendered, "\n", 2)
+			if len(parts) > 1 {
+				indented := indentWithConnector(parts[1], connector)
+				line = dot + " " + parts[0] + "\n" + indented
+			} else {
+				line = dot + " " + rendered
+			}
 		case "system":
 			line = a.theme.System.Render("▶ " + m.Content)
 		case "error":
 			line = a.theme.Error.Render("⚠ " + m.Content)
 		case "tool_use":
-			line = a.theme.ToolUse.Render("⚙ " + m.Content)
+			line = dot + " " + a.theme.ToolUse.Render(m.Content)
 		case "tool_result":
-			line = a.theme.ToolResult.Render("  ⎿ " + m.Content)
+			line = connector + a.theme.ToolResult.Render(m.Content)
 		default:
 			line = m.Content
 		}
@@ -469,6 +486,20 @@ func (a *App) renderMessages() string {
 		sb.WriteString("\n\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// appBlackCircle returns the platform-appropriate filled circle glyph.
+func appBlackCircle() string {
+	return "●"
+}
+
+// indentWithConnector prepends the connector prefix to each line.
+func indentWithConnector(text, connector string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		lines[i] = connector + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // AddSystemMessage appends a system-level notification to the message list.

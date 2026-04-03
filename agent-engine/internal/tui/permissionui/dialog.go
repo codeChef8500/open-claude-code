@@ -12,11 +12,11 @@ import (
 type Response int
 
 const (
-	ResponsePending    Response = iota
-	ResponseAllow               // Allow this once
-	ResponseDeny                // Deny this once
-	ResponseAlwaysAllow         // Allow and remember for session
-	ResponseAlwaysDeny          // Deny and remember for session
+	ResponsePending     Response = iota
+	ResponseAllow                // Allow this once
+	ResponseDeny                 // Deny this once
+	ResponseAlwaysAllow          // Allow and remember for session
+	ResponseAlwaysDeny           // Deny and remember for session
 )
 
 // DialogTheme holds styles for the permission dialog.
@@ -35,14 +35,21 @@ type DialogTheme struct {
 // DefaultDarkDialogTheme returns a dark-mode permission dialog theme.
 func DefaultDarkDialogTheme() DialogTheme {
 	return DialogTheme{
-		Title:     lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true),
-		Body:      lipgloss.NewStyle().Foreground(lipgloss.Color("250")),
-		Tool:      lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true),
-		Code:      lipgloss.NewStyle().Foreground(lipgloss.Color("15")),
-		Allow:     lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true),
-		Deny:      lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true),
-		Dim:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
-		Border:    lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11")).Padding(1, 2),
+		Title: lipgloss.NewStyle().Foreground(lipgloss.Color("#b1b9f9")).Bold(true),
+		Body:  lipgloss.NewStyle().Foreground(lipgloss.Color("250")),
+		Tool:  lipgloss.NewStyle().Foreground(lipgloss.Color("#d77757")).Bold(true),
+		Code:  lipgloss.NewStyle().Foreground(lipgloss.Color("15")),
+		Allow: lipgloss.NewStyle().Foreground(lipgloss.Color("#4eba65")).Bold(true),
+		Deny:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b80")).Bold(true),
+		Dim:   lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
+		Border: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#b1b9f9")).
+			BorderBottom(false).
+			BorderLeft(false).
+			BorderRight(false).
+			MarginTop(1).
+			PaddingLeft(1).PaddingRight(1),
 		Highlight: lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Bold(true),
 	}
 }

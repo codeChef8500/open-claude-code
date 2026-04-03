@@ -13,18 +13,18 @@ import (
 
 var (
 	userStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("12")).
+			Foreground(lipgloss.Color("#d77757")).
 			Bold(true)
 
 	assistantStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("10"))
+			Foreground(lipgloss.Color("#d77757"))
 
 	systemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("11")).
+			Foreground(lipgloss.Color("#6495ed")).
 			Italic(true)
 
 	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("9")).
+			Foreground(lipgloss.Color("#ff6b80")).
 			Bold(true)
 
 	statusStyle = lipgloss.NewStyle().
@@ -34,7 +34,10 @@ var (
 
 	borderStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240"))
+			BorderForeground(lipgloss.Color("#666666"))
+
+	connectorStyle  = lipgloss.NewStyle().Faint(true)
+	toolResultStyle = lipgloss.NewStyle().Faint(true)
 )
 
 // ── Message types ─────────────────────────────────────────────────────────────
@@ -106,7 +109,7 @@ type Model struct {
 // New creates a new TUI Model with default dimensions.
 func New(submitFn func(string)) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Type a message… (Enter to send, Shift+Enter for newline)"
+	ta.Placeholder = "Reply to Claude…"
 	ta.Focus()
 	ta.SetWidth(80)
 	ta.SetHeight(3)
@@ -221,9 +224,15 @@ func (m Model) View() string {
 		Width(m.width - 2).
 		Render(m.viewport.View())
 
-	inputBlock := borderStyle.
-		Width(m.width - 2).
-		Render(m.textarea.View())
+	// Input: top-only round border (claude-code-main style)
+	inputBorder := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#666666")).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		Width(m.width - 2)
+	inputBlock := inputBorder.Render(m.textarea.View())
 
 	statusBar := statusStyle.
 		Width(m.width).
@@ -239,18 +248,32 @@ func (m Model) View() string {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func (m *Model) renderMessages() string {
+	dot := assistantStyle.Render("●")
+	connector := connectorStyle.Render("  ⎿  ")
+
 	var sb strings.Builder
 	for _, msg := range m.messages {
 		var line string
 		switch msg.Role {
 		case "user":
-			line = userStyle.Render("You: ") + msg.Content
+			line = userStyle.Render("❯") + " " + msg.Content
 		case "assistant":
-			line = assistantStyle.Render("Assistant: ") + msg.Content
+			// First line gets ●, subsequent lines get ⎿ connector
+			parts := strings.SplitN(msg.Content, "\n", 2)
+			if len(parts) > 1 {
+				indented := modelIndentConnector(parts[1], connector)
+				line = dot + " " + parts[0] + "\n" + indented
+			} else {
+				line = dot + " " + msg.Content
+			}
 		case "system":
-			line = systemStyle.Render("System: " + msg.Content)
+			line = systemStyle.Render("▶ " + msg.Content)
 		case "error":
 			line = errorStyle.Render("⚠ " + msg.Content)
+		case "tool_use":
+			line = dot + " " + assistantStyle.Render(msg.Content)
+		case "tool_result":
+			line = connector + toolResultStyle.Render(msg.Content)
 		default:
 			line = msg.Content
 		}
@@ -258,6 +281,15 @@ func (m *Model) renderMessages() string {
 		sb.WriteString("\n\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// modelIndentConnector prepends the connector prefix to each line.
+func modelIndentConnector(text, connector string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		lines[i] = connector + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // AddSystemMessage appends a system-level notification to the message list.

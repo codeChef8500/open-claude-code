@@ -45,7 +45,7 @@ type PromptInput struct {
 // NewPromptInput creates an enhanced input model.
 func NewPromptInput(theme tui.Theme, completer *tui.Completer, width int) *PromptInput {
 	ta := textarea.New()
-	ta.Placeholder = "Type a message… (Enter to send, Ctrl+C to quit)"
+	ta.Placeholder = "Reply to Claude…"
 	ta.Focus()
 	ta.SetWidth(width)
 	ta.SetHeight(3)
@@ -156,15 +156,26 @@ func (p *PromptInput) Update(msg tea.Msg) (*PromptInput, tea.Cmd) {
 }
 
 // View renders the input area including autocomplete popup.
+// The input is wrapped in a top-only rounded border matching claude-code-main.
 func (p *PromptInput) View() string {
 	inputView := p.textarea.View()
 
+	// Wrap in top-only round border (claude-code-main style)
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(p.theme.Border.GetBorderBottomForeground()).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		Width(p.width - 2)
+	bordered := borderStyle.Render(inputView)
+
 	if p.compState.Active && len(p.compState.Items) > 0 {
 		popup := p.renderCompletionPopup()
-		return lipgloss.JoinVertical(lipgloss.Left, popup, inputView)
+		return lipgloss.JoinVertical(lipgloss.Left, popup, bordered)
 	}
 
-	return inputView
+	return bordered
 }
 
 // Value returns the current input text.
