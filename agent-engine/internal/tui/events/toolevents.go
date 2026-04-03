@@ -12,27 +12,6 @@ import (
 
 // ── Extended Bubbletea messages for tool use and status ──────────────────────
 
-// ToolStartMsg signals that a tool call has started.
-type ToolStartMsg struct {
-	ToolID   string
-	ToolName string
-	Input    string
-}
-
-// ToolDoneMsg signals that a tool call has completed.
-type ToolDoneMsg struct {
-	ToolID  string
-	Output  string
-	IsError bool
-}
-
-// CostUpdateMsg carries updated cost/token info for the status bar.
-type CostUpdateMsg struct {
-	CostUSD     float64
-	InputTokens int
-	TurnCount   int
-}
-
 // CompactMsg signals a compaction event.
 type CompactMsg struct {
 	PreTokens  int
@@ -78,20 +57,20 @@ func (b *EnhancedBridge) DrainChannel(ch <-chan *engine.StreamEvent) {
 					inputStr = string(data)
 				}
 			}
-			b.program.Send(ToolStartMsg{
+			b.program.Send(tui.ToolStartMsg{
 				ToolID:   ev.ToolID,
 				ToolName: ev.ToolName,
 				Input:    inputStr,
 			})
 		case engine.EventToolResult:
-			b.program.Send(ToolDoneMsg{
+			b.program.Send(tui.ToolDoneMsg{
 				ToolID:  ev.ToolID,
 				Output:  ev.Text,
 				IsError: ev.IsError,
 			})
 		case engine.EventUsage:
 			if ev.Usage != nil {
-				b.program.Send(CostUpdateMsg{
+				b.program.Send(tui.CostUpdateMsg{
 					InputTokens: ev.Usage.InputTokens,
 				})
 			}

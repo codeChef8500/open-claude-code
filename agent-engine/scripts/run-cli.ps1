@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Agent Engine CLI launcher for interactive E2E testing.
+    Agent Engine CLI launcher — full-screen TUI or single-shot prompt.
 .DESCRIPTION
-    Loads .env config, builds, and launches agent-engine CLI.
+    Loads .env config, builds, and launches agent-engine.
     Modes:
-      1. Interactive REPL (default)
+      1. Full-screen TUI (default) — Bubbletea alternate-screen UI
       2. Single prompt:  .\run-cli.ps1 -Prompt "hello"
       3. Verbose:        .\run-cli.ps1 -Verbose
 .EXAMPLE
@@ -17,6 +17,8 @@ param(
     [string]$Prompt = "",
     [string]$Model = "",
     [string]$WorkDir = "",
+    [string]$Resume = "",
+    [string]$PermissionMode = "",
     [switch]$Verbose,
     [switch]$SkipBuild,
     [switch]$Help
@@ -38,6 +40,8 @@ if ($Help) {
     Write-Host "    .\scripts\run-cli.ps1 -Model 'gpt-4o'          # override model"
     Write-Host "    .\scripts\run-cli.ps1 -WorkDir 'C:\myproject'  # set work dir"
     Write-Host "    .\scripts\run-cli.ps1 -SkipBuild               # skip compilation"
+    Write-Host "    .\scripts\run-cli.ps1 -Resume 'session-id'       # resume session"
+    Write-Host "    .\scripts\run-cli.ps1 -PermissionMode 'auto'     # set perm mode"
     Write-Host ""
     Write-Host "  Environment (.env):"
     Write-Host "    Copy .env.example to .env and fill in your API key."
@@ -178,12 +182,20 @@ if ($Prompt) {
     $cliArgs += "-p"
     $cliArgs += $Prompt
 }
+if ($Resume) {
+    $cliArgs += "--resume"
+    $cliArgs += $Resume
+}
+if ($PermissionMode) {
+    $cliArgs += "--permission-mode"
+    $cliArgs += $PermissionMode
+}
 
 # -- 7. Launch --------------------------------------------------------------
 if ($Prompt) {
     Write-Host "[run] Single-shot: $Prompt" -ForegroundColor DarkGray
 } else {
-    Write-Host "[run] Interactive REPL (type /quit to exit)" -ForegroundColor DarkGray
+    Write-Host "[run] Full-screen TUI (Ctrl+C to quit, /help for commands)" -ForegroundColor DarkGray
 }
 Write-Host "==========================================" -ForegroundColor DarkGray
 Write-Host ""

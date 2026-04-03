@@ -56,6 +56,32 @@ type StreamDoneMsg struct{}
 // StreamErrorMsg carries an error from the engine.
 type StreamErrorMsg struct{ Err error }
 
+// CostUpdateMsg carries updated cost/token info for the status bar.
+type CostUpdateMsg struct {
+	CostUSD     float64
+	InputTokens int
+	TurnCount   int
+}
+
+// ToolStartMsg signals that a tool call has started.
+type ToolStartMsg struct {
+	ToolID   string
+	ToolName string
+	Input    string
+}
+
+// ToolDoneMsg signals that a tool call has completed.
+type ToolDoneMsg struct {
+	ToolID  string
+	Output  string
+	IsError bool
+}
+
+// SystemMsg carries a system-level message for display.
+type SystemMsg struct {
+	Text string
+}
+
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 // Model is the top-level Bubbletea model for the agent TUI.

@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt run dev docker release clean
+.PHONY: build test lint fmt run dev tui docker release clean
 
 BINARY := agent-engine
 CMD := ./cmd/agent-engine
@@ -9,6 +9,9 @@ build:
 
 dev:
 	go run $(CMD) -port 8080
+
+tui:
+	go run $(CMD)
 
 test:
 	go test ./...
