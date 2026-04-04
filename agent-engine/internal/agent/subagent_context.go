@@ -26,6 +26,11 @@ type SubagentContext struct {
 	// TeamName is the swarm/team identifier (if part of a team).
 	TeamName string `json:"team_name,omitempty"`
 
+	// ── Fork ancestry ──────────────────────────────────────────────────
+	// IsForkChild is true if this agent was spawned as a fork child.
+	// Fork children cannot fork again (no recursive forks).
+	IsForkChild bool `json:"is_fork_child,omitempty"`
+
 	// ── Permission inheritance ──────────────────────────────────────────
 	// InheritedPermittedDirs are directories the parent allows writes to.
 	InheritedPermittedDirs []string `json:"inherited_permitted_dirs,omitempty"`
@@ -82,6 +87,7 @@ func (sc *SubagentContext) DeriveChild(childAgentID string) (*SubagentContext, e
 		Depth:                   sc.Depth + 1,
 		MaxDepth:                sc.MaxDepth,
 		TeamName:                sc.TeamName,
+		IsForkChild:             sc.IsForkChild,
 		InheritedPermittedDirs:  sc.InheritedPermittedDirs,
 		InheritedDeniedCommands: sc.InheritedDeniedCommands,
 		PermissionMode:          sc.PermissionMode,

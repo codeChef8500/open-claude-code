@@ -14,8 +14,10 @@ import (
 	"github.com/wall-ai/agent-engine/internal/tui/designsystem"
 	"github.com/wall-ai/agent-engine/internal/tui/figures"
 	"github.com/wall-ai/agent-engine/internal/tui/logo"
+	"github.com/wall-ai/agent-engine/internal/tui/message"
 	"github.com/wall-ai/agent-engine/internal/tui/search"
 	sess "github.com/wall-ai/agent-engine/internal/tui/session"
+	"github.com/wall-ai/agent-engine/internal/tui/spinnerv2"
 	"github.com/wall-ai/agent-engine/internal/tui/themes"
 	"github.com/wall-ai/agent-engine/internal/tui/vim"
 )
@@ -58,13 +60,16 @@ type App struct {
 	sessStore  *sess.SessionStore
 
 	// Status line data
-	model       string
-	costUSD     float64
-	contextPct  float64
-	permMode    string
-	cwd         string
-	turnCount   int
-	inputTokens int
+	model        string
+	prevModel    string // for model attribution change detection
+	costUSD      float64
+	contextPct   float64
+	permMode     string
+	cwd          string
+	turnCount    int
+	inputTokens  int
+	linesAdded   int
+	linesDeleted int
 
 	// Timing
 	loadingStart time.Time
@@ -355,7 +360,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.status = "Ready"
 		a.isLoading = false
 		a.turnCount++
-		a.spinner.Hide()
+		// Show turn completion message (matching claude-code-main)
+		if a.spinner.IsVisible() {
+			elapsed := a.spinner.Elapsed()
+			a.spinner.Hide()
+			completionMsg := spinnerv2.FormatTurnCompletion(elapsed)
+			a.messages = append(a.messages, ChatMessage{Role: "system", Content: completionMsg})
+			a.refreshViewport()
+			a.viewport.GotoBottom()
+		} else {
+			a.spinner.Hide()
+		}
 
 	case StreamErrorMsg:
 		a.messages = append(a.messages, ChatMessage{
@@ -376,6 +391,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		a.toolTrack.StartTool(msg.ToolID, msg.ToolName, msg.Input)
 		a.spinner.SetLabel(msg.ToolName + "…")
+		a.spinner.SetMode(SpinnerModeToolUse)
 		a.transcript.Append(sess.TranscriptEntry{
 			Timestamp: time.Now(), Role: "tool_use",
 			ToolName: msg.ToolName, Content: msg.Input,
@@ -392,6 +408,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		a.toolTrack.FinishTool(msg.ToolID, msg.Output, msg.IsError)
 		a.spinner.ShowRandom()
+		a.spinner.SetMode(SpinnerModeRequesting)
 		a.transcript.Append(sess.TranscriptEntry{
 			Timestamp: time.Now(), Role: "tool_result",
 			Content: msg.Output, IsError: msg.IsError,
@@ -455,6 +472,20 @@ func (a *App) Completer() *Completer {
 // AskPermission activates the permission dialog (called from the engine bridge).
 func (a *App) AskPermission(toolName, desc string) {
 	a.permission.Ask(toolName, desc)
+}
+
+// UpdateDiffStats updates the lines added/deleted counters for the status bar.
+func (a *App) UpdateDiffStats(added, deleted int) {
+	a.linesAdded += added
+	a.linesDeleted += deleted
+}
+
+// SetModel updates the current model name (triggers attribution label on change).
+func (a *App) SetModel(model string) {
+	if a.model != model {
+		a.prevModel = a.model
+		a.model = model
+	}
 }
 
 // ── View ──────────────────────────────────────────────────────────────────────
@@ -532,10 +563,17 @@ func (a *App) renderStatusLine() string {
 
 	left := strings.Join(leftParts, sep)
 
-	// ── Right: mode · turn · cwd ──
+	// ── Right: mode · lines +/- · vim · turn · cwd ──
 	var rightParts []string
 	if a.permMode != "" && a.permMode != "default" {
 		rightParts = append(rightParts, a.styles.Warning.Render(a.permMode))
+	}
+	if a.linesAdded > 0 || a.linesDeleted > 0 {
+		diffStr := fmt.Sprintf("+%d -%d", a.linesAdded, a.linesDeleted)
+		rightParts = append(rightParts, a.styles.Dimmed.Render(diffStr))
+	}
+	if a.vimState != nil && a.vimState.Enabled {
+		rightParts = append(rightParts, a.styles.Dimmed.Render("VIM"))
 	}
 	if a.turnCount > 0 {
 		rightParts = append(rightParts, a.styles.Dimmed.Render(fmt.Sprintf("turn %d", a.turnCount)))
@@ -675,44 +713,61 @@ func (a *App) refreshViewport() {
 }
 
 func (a *App) renderMessages() string {
-	dot := a.styles.Dot.Render(figures.BlackCircle())
 	connector := a.styles.Connector.Render("  ⎿  ")
 
 	var sb strings.Builder
-	for _, m := range a.messages {
+	for i, m := range a.messages {
 		var line string
 		switch m.Role {
 		case "user":
+			// User messages: no dot prefix, just ❯ prompt
 			line = a.styles.DotUser.Render("❯") + " " + m.Content
+
 		case "assistant":
-			rendered := a.md.Render(m.Content)
-			// First line gets ●, subsequent lines get ⎿ connector
-			parts := strings.SplitN(rendered, "\n", 2)
-			if len(parts) > 1 {
-				indented := indentWithConnector(parts[1], connector)
-				line = dot + " " + parts[0] + "\n" + indented
-			} else {
-				line = dot + " " + rendered
+			// Model attribution: show model label when it changes
+			if a.model != "" {
+				modelShort := message.ShortenModelName(a.model)
+				modelLabel := a.styles.Dimmed.Render(modelShort)
+				line = modelLabel + "\n"
 			}
+			// Assistant text: render as Markdown, no dot prefix
+			rendered := a.md.Render(m.Content)
+			line += rendered
+
 		case "system":
-			line = a.styles.System.Render(figures.BlackCircle() + " " + m.Content)
+			line = a.styles.System.Render(m.Content)
+
 		case "error":
-			line = a.styles.Error.Render(figures.BlackCircle() + " " + m.Content)
+			errDot := a.styles.Error.Render(figures.BlackCircle())
+			line = errDot + " " + a.styles.Error.Render(m.Content)
+
 		case "tool_use":
-			display := toolDisplayName(m.ToolName)
-			line = dot + " " + a.styles.ToolUse.Render(display)
+			// claude-code format: ● ToolName (params)
+			toolDot := a.styles.Dot.Render(figures.BlackCircle()) + " "
+			toolName := toolUserFacingName(m.ToolName)
+			nameStyle := a.styles.ToolUse.Bold(true).Italic(false)
+			line = toolDot + nameStyle.Render(toolName)
 			if m.Content != "" {
 				summary := truncateOutput(m.Content, 120)
-				line += "\n" + connector + a.styles.Dimmed.Render(summary)
+				line += " " + a.styles.Dimmed.Render("("+summary+")")
 			}
+			// If permission dialog is visible and this is the last tool_use,
+			// show "Waiting for permission…" below it
+			if a.permission.IsVisible() && isLastToolUse(a.messages, i) {
+				line += "\n" + connector + a.styles.Dimmed.Render("Waiting for permission…")
+			}
+
 		case "tool_result":
+			// claude-code format:   ⎿  result content
 			if m.IsError {
 				line = connector + a.styles.Error.Render(truncateToolOutput(m.Content, 5))
 			} else {
-				line = connector + a.styles.ToolResult.Render(truncateToolOutput(m.Content, 10))
+				line = connector + a.styles.Dimmed.Render(truncateToolOutput(m.Content, 10))
 			}
+
 		case "banner":
 			line = m.Content
+
 		default:
 			line = m.Content
 		}
@@ -722,28 +777,38 @@ func (a *App) renderMessages() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// toolDisplayName returns a human-readable display name for a tool,
-// matching claude-code-main's tool display style.
-func toolDisplayName(name string) string {
+// isLastToolUse returns true if messages[idx] is the last "tool_use" message.
+func isLastToolUse(messages []ChatMessage, idx int) bool {
+	for j := idx + 1; j < len(messages); j++ {
+		if messages[j].Role == "tool_use" {
+			return false
+		}
+	}
+	return true
+}
+
+// toolUserFacingName returns the user-facing tool name matching claude-code-main.
+// This uses the short tool name ("Bash", "Read", "Update", etc.) not a description.
+func toolUserFacingName(name string) string {
 	switch name {
 	case "Bash", "bash":
-		return "Running command"
-	case "Read", "read":
-		return "Reading file"
-	case "Edit", "edit":
-		return "Editing file"
-	case "Write", "write":
-		return "Writing file"
+		return "Bash"
+	case "Read", "read", "FileRead", "file_read":
+		return "Read"
+	case "Edit", "edit", "FileEdit", "file_edit":
+		return "Update"
+	case "Write", "write", "FileWrite", "file_write":
+		return "Write"
 	case "Glob", "glob":
-		return "Searching files"
+		return "Search"
 	case "Grep", "grep":
-		return "Searching content"
+		return "Grep"
 	case "ListDir", "list_dir":
-		return "Listing directory"
+		return "LS"
 	case "WebSearch", "web_search":
-		return "Searching web"
+		return "WebSearch"
 	case "WebFetch", "web_fetch":
-		return "Fetching URL"
+		return "WebFetch"
 	default:
 		return name
 	}

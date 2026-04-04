@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/wall-ai/agent-engine/internal/tui/figures"
 	"github.com/wall-ai/agent-engine/internal/tui/themes"
+	"github.com/wall-ai/agent-engine/internal/tui/toolui"
 )
 
 // ToolUseState tracks the display state of an in-flight tool call.
@@ -76,26 +78,38 @@ func (t *ToolUseTracker) ActiveCount() int {
 	return len(t.active)
 }
 
-// RenderActive renders the active tool calls as a status block.
+// RenderActive renders the active tool calls using claude-code-main format:
+//
+//	● ToolName (params)
+//	  ⎿  Running…
 func (t *ToolUseTracker) RenderActive() string {
 	if len(t.active) == 0 {
 		return ""
 	}
+
+	theme := t.buildToolUITheme()
+
 	var lines []string
 	for _, s := range t.active {
+		// Blinking dot for active state
+		dotStyle := lipgloss.NewStyle().Foreground(t.styles.ToolUse.GetForeground())
+		dot := dotStyle.Render(figures.BlackCircle()) + " "
+
+		header := toolui.RenderToolHeader(dot, s.ToolName, s.Input, theme)
+
 		elapsed := s.Duration().Round(time.Millisecond)
-		line := t.styles.ToolUse.Render(
-			fmt.Sprintf("⚙ %s (%s)", s.ToolName, elapsed),
-		)
-		if s.Input != "" {
-			line += t.styles.Dimmed.Render(" " + s.Input)
-		}
-		lines = append(lines, line)
+		running := t.styles.Dimmed.Render(fmt.Sprintf("Running… (%s)", elapsed))
+		result := toolui.RenderResponseLine(running, theme)
+
+		lines = append(lines, header+"\n"+result)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// RenderCompleted renders the last N completed tool calls.
+// RenderCompleted renders the last N completed tool calls using claude-code format:
+//
+//	● ToolName (params)
+//	  ⎿  Done (123ms)
 func (t *ToolUseTracker) RenderCompleted(n int) string {
 	if len(t.completed) == 0 {
 		return ""
@@ -105,21 +119,50 @@ func (t *ToolUseTracker) RenderCompleted(n int) string {
 		start = len(t.completed) - n
 	}
 
+	theme := t.buildToolUITheme()
+
 	var lines []string
 	for _, s := range t.completed[start:] {
-		elapsed := s.Duration().Round(time.Millisecond)
-		icon := "✓"
-		style := t.styles.ToolResult
+		// Green dot for success, red for error
+		var dotColor lipgloss.TerminalColor
 		if s.IsError {
-			icon = "✗"
-			style = t.styles.Error
+			dotColor = t.styles.Error.GetForeground()
+		} else {
+			dotColor = t.styles.Success.GetForeground()
 		}
-		line := style.Render(
-			fmt.Sprintf("%s %s (%s)", icon, s.ToolName, elapsed),
-		)
-		lines = append(lines, line)
+		dotStyle := lipgloss.NewStyle().Foreground(dotColor)
+		dot := dotStyle.Render(figures.BlackCircle()) + " "
+
+		header := toolui.RenderToolHeader(dot, s.ToolName, s.Input, theme)
+
+		elapsed := s.Duration().Round(time.Millisecond)
+		var resultMsg string
+		if s.IsError {
+			resultMsg = t.styles.Error.Render(fmt.Sprintf("Error (%s)", elapsed))
+		} else {
+			resultMsg = t.styles.Dimmed.Render(fmt.Sprintf("Done (%s)", elapsed))
+		}
+		result := toolui.RenderResponseLine(resultMsg, theme)
+
+		lines = append(lines, header+"\n"+result)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// buildToolUITheme constructs a ToolUITheme from the tracker's styles.
+func (t *ToolUseTracker) buildToolUITheme() toolui.ToolUITheme {
+	return toolui.ToolUITheme{
+		ToolIcon: t.styles.ToolUse,
+		TreeConn: t.styles.Connector,
+		Code:     t.styles.Highlight,
+		Output:   t.styles.Dimmed,
+		Dim:      t.styles.Dimmed,
+		Error:    t.styles.Error,
+		Success:  t.styles.Success,
+		FilePath: t.styles.Highlight,
+		DiffAdd:  t.styles.DiffAdd,
+		DiffDel:  t.styles.DiffDel,
+	}
 }
 
 // Clear resets the tracker.
