@@ -44,8 +44,10 @@ var (
 
 // ChatMessage is a single entry in the displayed conversation.
 type ChatMessage struct {
-	Role    string // "user" | "assistant" | "system" | "error"
-	Content string
+	Role     string // "user" | "assistant" | "system" | "error" | "tool_use" | "tool_result" | "banner"
+	Content  string
+	ToolName string // for tool_use / tool_result messages
+	IsError  bool   // for tool_result errors
 }
 
 // ── Bubbletea messages ────────────────────────────────────────────────────────

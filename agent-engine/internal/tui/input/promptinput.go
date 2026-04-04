@@ -7,6 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/wall-ai/agent-engine/internal/tui"
+	"github.com/wall-ai/agent-engine/internal/tui/color"
+	"github.com/wall-ai/agent-engine/internal/tui/themes"
 )
 
 // Mode identifies the current input mode.
@@ -33,19 +35,20 @@ type PromptInput struct {
 	completer *tui.Completer
 	compState tui.CompletionState
 
-	mode    Mode
-	vimMode bool // persistent vim toggle
-	width   int
-	theme   tui.Theme
+	mode      Mode
+	vimMode   bool // persistent vim toggle
+	width     int
+	styles    themes.Styles
+	themeData themes.Theme
 
 	// SubmitFn is called when the user presses Enter.
 	SubmitFn func(text string)
 }
 
 // NewPromptInput creates an enhanced input model.
-func NewPromptInput(theme tui.Theme, completer *tui.Completer, width int) *PromptInput {
+func NewPromptInput(styles themes.Styles, themeData themes.Theme, completer *tui.Completer, width int) *PromptInput {
 	ta := textarea.New()
-	ta.Placeholder = "Reply to Claude…"
+	ta.Placeholder = "Reply to Claude\u2026"
 	ta.Focus()
 	ta.SetWidth(width)
 	ta.SetHeight(3)
@@ -57,7 +60,8 @@ func NewPromptInput(theme tui.Theme, completer *tui.Completer, width int) *Promp
 		history:   tui.NewInputHistory(200),
 		completer: completer,
 		width:     width,
-		theme:     theme,
+		styles:    styles,
+		themeData: themeData,
 	}
 }
 
@@ -163,7 +167,7 @@ func (p *PromptInput) View() string {
 	// Wrap in top-only round border (claude-code-main style)
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.theme.Border.GetBorderBottomForeground()).
+		BorderForeground(color.Resolve(p.themeData.PromptBorder)).
 		BorderBottom(false).
 		BorderLeft(false).
 		BorderRight(false).
@@ -275,10 +279,10 @@ func (p *PromptInput) renderCompletionPopup() string {
 	for i, item := range items {
 		label := item.Label
 		if item.Description != "" {
-			label += "  " + p.theme.Dimmed.Render(item.Description)
+			label += "  " + p.styles.Dimmed.Render(item.Description)
 		}
 		if i == p.compState.Selected {
-			label = p.theme.Highlight.Render("▸ " + label)
+			label = p.styles.Highlight.Render("\u25b8 " + label)
 		} else {
 			label = "  " + label
 		}
@@ -286,7 +290,7 @@ func (p *PromptInput) renderCompletionPopup() string {
 	}
 
 	popup := strings.Join(lines, "\n")
-	return p.theme.Border.Width(p.width - 4).Render(popup)
+	return p.styles.Border.Width(p.width - 4).Render(popup)
 }
 
 func min(a, b int) int {

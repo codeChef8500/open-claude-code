@@ -42,7 +42,11 @@ func (t *EnterPlanModeTool) InputSchema() json.RawMessage {
 		"properties": {
 			"plan": {
 				"type": "string",
-				"description": "The plan to present to the user for approval."
+				"description": "The structured plan to present to the user for approval. Use Markdown formatting."
+			},
+			"title": {
+				"type": "string",
+				"description": "Short title for the plan."
 			}
 		},
 		"required": ["plan"]
@@ -58,15 +62,26 @@ func (t *EnterPlanModeTool) Call(_ context.Context, input json.RawMessage, uctx 
 	go func() {
 		defer close(ch)
 		var args struct {
-			Plan string `json:"plan"`
+			Plan  string `json:"plan"`
+			Title string `json:"title"`
 		}
 		if err := json.Unmarshal(input, &args); err != nil {
 			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: "invalid input: " + err.Error(), IsError: true}
 			return
 		}
+
+		// Persist plan in context for later retrieval.
+		if uctx.SetPlanState != nil {
+			uctx.SetPlanState(args.Title, args.Plan, false)
+		}
+
+		header := "[PLAN MODE]"
+		if args.Title != "" {
+			header += " " + args.Title
+		}
 		ch <- &engine.ContentBlock{
 			Type: engine.ContentTypeText,
-			Text: "[PLAN MODE]\n\n" + args.Plan + "\n\nPlease review and approve before I proceed.",
+			Text: header + "\n\n" + args.Plan + "\n\nPlease review and approve before I proceed.",
 		}
 	}()
 	return ch, nil
@@ -90,7 +105,12 @@ func (t *ExitPlanModeTool) MaxResultSizeChars() int                  { return 20
 func (t *ExitPlanModeTool) IsEnabled(_ *tool.UseContext) bool        { return true }
 
 func (t *ExitPlanModeTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{}}`)
+	return json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"approved":{"type":"boolean","description":"Whether the plan was approved by the user. Default true."}
+		}
+	}`)
 }
 
 func (t *ExitPlanModeTool) Prompt(_ *tool.UseContext) string {
@@ -101,11 +121,31 @@ func (t *ExitPlanModeTool) CheckPermissions(_ context.Context, _ json.RawMessage
 	return nil
 }
 
-func (t *ExitPlanModeTool) Call(_ context.Context, _ json.RawMessage, uctx *tool.UseContext) (<-chan *engine.ContentBlock, error) {
+func (t *ExitPlanModeTool) Call(_ context.Context, input json.RawMessage, uctx *tool.UseContext) (<-chan *engine.ContentBlock, error) {
 	ch := make(chan *engine.ContentBlock, 1)
 	go func() {
 		defer close(ch)
-		ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: "Plan mode exited. Resuming normal execution."}
+
+		var args struct {
+			Approved *bool `json:"approved"`
+		}
+		_ = json.Unmarshal(input, &args)
+
+		approved := true
+		if args.Approved != nil {
+			approved = *args.Approved
+		}
+
+		// Mark plan as approved/rejected in context.
+		if uctx.SetPlanState != nil {
+			uctx.SetPlanState("", "", approved)
+		}
+
+		if approved {
+			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: "Plan approved. Resuming normal execution."}
+		} else {
+			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: "Plan not approved. Returning to plan mode for revision."}
+		}
 	}()
 	return ch, nil
 }

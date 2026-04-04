@@ -39,7 +39,7 @@ func NewLayout(width, height int) Layout {
 	l := Layout{
 		headerHeight: 1,
 		footerHeight: 1,
-		inputHeight:  3,
+		inputHeight:  5, // 1 top border + 3 textarea lines + 1 padding
 	}
 	l.Resize(width, height)
 	return l
@@ -50,8 +50,8 @@ func (l *Layout) Resize(width, height int) {
 	l.width = width
 	l.height = height
 
-	// body = total - header - input - footer - borders/gaps
-	body := height - l.headerHeight - l.inputHeight - l.footerHeight - 2 // 2 for separator lines
+	// body = total - header - input - footer - gap
+	body := height - l.headerHeight - l.inputHeight - l.footerHeight - 1
 	if body < 3 {
 		body = 3
 	}
@@ -86,6 +86,8 @@ func (l *Layout) SetInputHeight(h int) {
 }
 
 // Compose joins header, body, input, and footer into a single full-screen view.
+// No explicit separator — the input's top-only round border provides visual separation
+// (matching claude-code-main's layout).
 func (l *Layout) Compose(header, body, input, footer string) string {
 	// Pad/truncate each region to its allocated height
 	headerView := padToHeight(header, l.headerHeight, l.width)
@@ -93,15 +95,9 @@ func (l *Layout) Compose(header, body, input, footer string) string {
 	inputView := padToHeight(input, l.inputHeight, l.width)
 	footerView := padToHeight(footer, l.footerHeight, l.width)
 
-	// Separator between body and input
-	separator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Render(strings.Repeat("─", l.width))
-
 	return lipgloss.JoinVertical(lipgloss.Left,
 		headerView,
 		bodyView,
-		separator,
 		inputView,
 		footerView,
 	)

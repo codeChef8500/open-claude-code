@@ -11,10 +11,22 @@ import (
 )
 
 type Input struct {
-	Task         string   `json:"task"`
-	AllowedTools []string `json:"allowed_tools,omitempty"`
-	MaxTurns     int      `json:"max_turns,omitempty"`
-	SystemPrompt string   `json:"system_prompt,omitempty"`
+	Task            string   `json:"task"`
+	Description     string   `json:"description,omitempty"`
+	AllowedTools    []string `json:"allowed_tools,omitempty"`
+	MaxTurns        int      `json:"max_turns,omitempty"`
+	SystemPrompt    string   `json:"system_prompt,omitempty"`
+	SubagentType    string   `json:"subagent_type,omitempty"`
+	RunInBackground bool     `json:"run_in_background,omitempty"`
+	Model           string   `json:"model,omitempty"`
+}
+
+// Built-in subagent types and their default tool sets.
+var subagentTypes = map[string][]string{
+	"general": nil, // all tools
+	"explore": {"Read", "Grep", "Glob", "Bash", "lsp"},
+	"plan":    {"Read", "Grep", "Glob", "Bash"},
+	"verify":  {"Read", "Grep", "Glob", "Bash", "PowerShell"},
 }
 
 // SubAgentRunner is the callback the parent engine provides to launch a child agent.
@@ -30,10 +42,24 @@ func New(runner SubAgentRunner) *AgentTool {
 	return &AgentTool{runSubAgent: runner}
 }
 
-func (t *AgentTool) Name() string                             { return "Task" }
-func (t *AgentTool) UserFacingName() string                   { return "task" }
-func (t *AgentTool) Description() string                      { return "Spawn a sub-agent to complete a task autonomously." }
-func (t *AgentTool) IsReadOnly(_ json.RawMessage) bool        { return false }
+func (t *AgentTool) Name() string                      { return "Task" }
+func (t *AgentTool) UserFacingName() string            { return "task" }
+func (t *AgentTool) Description() string               { return "Spawn a sub-agent to complete a task autonomously." }
+func (t *AgentTool) IsReadOnly(_ json.RawMessage) bool { return false }
+func (t *AgentTool) GetActivityDescription(input json.RawMessage) string {
+	var in Input
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "Running sub-agent"
+	}
+	if in.Description != "" {
+		return "Agent: " + in.Description
+	}
+	task := in.Task
+	if len(task) > 50 {
+		task = task[:50] + "…"
+	}
+	return "Agent: " + task
+}
 func (t *AgentTool) IsConcurrencySafe(_ json.RawMessage) bool { return true }
 func (t *AgentTool) MaxResultSizeChars() int                  { return 50_000 }
 func (t *AgentTool) IsEnabled(_ *tool.UseContext) bool        { return true }
@@ -43,10 +69,14 @@ func (t *AgentTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
 		"type":"object",
 		"properties":{
-			"task":{"type":"string","description":"Description of the task for the sub-agent."},
+			"task":{"type":"string","description":"Full description of the task for the sub-agent. Be thorough — the agent starts fresh."},
+			"description":{"type":"string","description":"Short 3-5 word summary of the task (shown in UI)."},
 			"allowed_tools":{"type":"array","items":{"type":"string"},"description":"Optional list of tool names the sub-agent may use."},
 			"max_turns":{"type":"integer","description":"Maximum turns for the sub-agent (default 50)."},
-			"system_prompt":{"type":"string","description":"Optional custom system prompt for the sub-agent."}
+			"system_prompt":{"type":"string","description":"Optional custom system prompt for the sub-agent."},
+			"subagent_type":{"type":"string","enum":["general","explore","plan","verify"],"description":"Specialized agent type. general: full access (default). explore: read-only. plan: planning focused. verify: testing/verification."},
+			"run_in_background":{"type":"boolean","description":"If true, run the agent in the background and return immediately."},
+			"model":{"type":"string","description":"Optional model override (e.g. sonnet, opus, haiku)."}
 		},
 		"required":["task"]
 	}`)
@@ -111,6 +141,13 @@ func (t *AgentTool) Call(ctx context.Context, input json.RawMessage, uctx *tool.
 		return nil, fmt.Errorf("invalid input: %w", err)
 	}
 
+	// Apply subagent type defaults if no explicit allowed_tools.
+	if len(in.AllowedTools) == 0 && in.SubagentType != "" {
+		if tools, ok := subagentTypes[in.SubagentType]; ok && tools != nil {
+			in.AllowedTools = tools
+		}
+	}
+
 	ch := make(chan *engine.ContentBlock, 4)
 	go func() {
 		defer close(ch)
@@ -124,6 +161,23 @@ func (t *AgentTool) Call(ctx context.Context, input json.RawMessage, uctx *tool.
 				IsError: true,
 			}
 			return
+		}
+
+		// Background execution.
+		if in.RunInBackground {
+			go func() {
+				_, _ = t.runSubAgent(ctx, agentID, in.Task, in, uctx)
+			}()
+			ch <- &engine.ContentBlock{
+				Type: engine.ContentTypeText,
+				Text: fmt.Sprintf("Started background agent %s. Task: %s", agentID, in.Description),
+			}
+			return
+		}
+
+		// Emit progress indicator.
+		if uctx.SetToolJSX != nil {
+			uctx.SetToolJSX(uctx.ToolUseID, map[string]string{"status": "running", "agentId": agentID})
 		}
 
 		result, err := t.runSubAgent(ctx, agentID, in.Task, in, uctx)

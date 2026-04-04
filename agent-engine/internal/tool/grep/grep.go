@@ -77,11 +77,14 @@ func (t *GrepTool) Prompt(_ *tool.UseContext) string {
 
 Usage:
 - ALWAYS use Grep for search tasks. NEVER invoke grep or rg as a Bash command. The Grep tool has been optimized for correct permissions and access.
+- DO NOT USE context_lines for initial searches that may have a large number of results. Use it only when you know it is a very specific, targeted search.
+- By default, pattern is treated as a regular expression. Set case_sensitive to control matching.
 - Supports full regex syntax (e.g., "log.*Error", "function\s+\w+")
-- Filter files with include parameter in glob format (e.g., "*.js", "**/*.tsx")
+- Filter files with include parameter in glob format (e.g., "*.go", "**/*.tsx")
 - Use the Task tool for open-ended searches requiring multiple rounds
 - Pattern syntax: Uses ripgrep (not grep) — literal braces need escaping (use interface\{\} to find interface{} in Go code)
-- By default, results are capped at 250 matches. Use offset for pagination or set head_limit to 0 for unlimited results.`
+- By default, results are capped at 250 matches. Use offset for pagination or set head_limit to 0 for unlimited results.
+- If the result is truncated, you must narrow down your search using a more specific pattern or more filters.`
 }
 
 func (t *GrepTool) ValidateInput(_ context.Context, input json.RawMessage) error {

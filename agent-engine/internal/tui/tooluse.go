@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/wall-ai/agent-engine/internal/tui/themes"
 )
 
 // ToolUseState tracks the display state of an in-flight tool call.
@@ -32,14 +33,14 @@ func (t *ToolUseState) Duration() time.Duration {
 type ToolUseTracker struct {
 	active    map[string]*ToolUseState
 	completed []*ToolUseState
-	theme     Theme
+	styles    themes.Styles
 }
 
 // NewToolUseTracker creates a new tracker.
-func NewToolUseTracker(theme Theme) *ToolUseTracker {
+func NewToolUseTracker(styles themes.Styles) *ToolUseTracker {
 	return &ToolUseTracker{
 		active: make(map[string]*ToolUseState),
-		theme:  theme,
+		styles: styles,
 	}
 }
 
@@ -83,11 +84,11 @@ func (t *ToolUseTracker) RenderActive() string {
 	var lines []string
 	for _, s := range t.active {
 		elapsed := s.Duration().Round(time.Millisecond)
-		line := t.theme.ToolUse.Render(
+		line := t.styles.ToolUse.Render(
 			fmt.Sprintf("⚙ %s (%s)", s.ToolName, elapsed),
 		)
 		if s.Input != "" {
-			line += t.theme.Dimmed.Render(" " + s.Input)
+			line += t.styles.Dimmed.Render(" " + s.Input)
 		}
 		lines = append(lines, line)
 	}
@@ -108,10 +109,10 @@ func (t *ToolUseTracker) RenderCompleted(n int) string {
 	for _, s := range t.completed[start:] {
 		elapsed := s.Duration().Round(time.Millisecond)
 		icon := "✓"
-		style := t.theme.ToolResult
+		style := t.styles.ToolResult
 		if s.IsError {
 			icon = "✗"
-			style = t.theme.Error
+			style = t.styles.Error
 		}
 		line := style.Render(
 			fmt.Sprintf("%s %s (%s)", icon, s.ToolName, elapsed),

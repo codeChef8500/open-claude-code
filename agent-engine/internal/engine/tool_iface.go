@@ -212,6 +212,9 @@ type UseContext struct {
 	// ── Prompt elicitation (interactive hooks) ─────────────────────────
 	RequestPrompt func(sourceName string, toolInputSummary string) func(request interface{}) (interface{}, error)
 
+	// ── Plan mode state ────────────────────────────────────────────────
+	SetPlanState func(title, plan string, approved bool)
+
 	// ── Task management ────────────────────────────────────────────────
 	TaskRegistry TaskRegistry
 

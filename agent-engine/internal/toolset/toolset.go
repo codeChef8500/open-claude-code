@@ -22,6 +22,7 @@ import (
 	"github.com/wall-ai/agent-engine/internal/tool/planmode"
 	"github.com/wall-ai/agent-engine/internal/tool/powershell"
 	"github.com/wall-ai/agent-engine/internal/tool/sendmessage"
+	"github.com/wall-ai/agent-engine/internal/tool/skilltool"
 	"github.com/wall-ai/agent-engine/internal/tool/sleep"
 	"github.com/wall-ai/agent-engine/internal/tool/taskcreate"
 	"github.com/wall-ai/agent-engine/internal/tool/taskget"
@@ -79,6 +80,8 @@ func DefaultTools(runner agentool.SubAgentRunner) []tool.Tool {
 		worktree.NewEnter(),
 		worktree.NewExit(),
 		worktree.NewList(),
+		// Skills
+		skilltool.New(nil),
 	}
 
 	// Register platform-appropriate shell tool.

@@ -10,8 +10,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/wall-ai/agent-engine/internal/tui/color"
+	"github.com/wall-ai/agent-engine/internal/tui/designsystem"
+	"github.com/wall-ai/agent-engine/internal/tui/figures"
+	"github.com/wall-ai/agent-engine/internal/tui/logo"
 	"github.com/wall-ai/agent-engine/internal/tui/search"
 	sess "github.com/wall-ai/agent-engine/internal/tui/session"
+	"github.com/wall-ai/agent-engine/internal/tui/themes"
 	"github.com/wall-ai/agent-engine/internal/tui/vim"
 )
 
@@ -38,7 +43,8 @@ type App struct {
 	// State
 	messages   []ChatMessage
 	status     string
-	theme      Theme
+	themeData  themes.Theme
+	styles     themes.Styles
 	keymap     KeyMap
 	showHelp   bool
 	isLoading  bool
@@ -69,7 +75,8 @@ type App struct {
 
 // AppConfig holds configuration for creating a new App.
 type AppConfig struct {
-	Dark           bool
+	ThemeName      themes.ThemeName // empty defaults to ThemeDark
+	Dark           bool             // deprecated: use ThemeName instead
 	Model          string
 	PermissionMode string
 	WorkDir        string
@@ -78,26 +85,64 @@ type AppConfig struct {
 
 // NewApp creates a fully initialised full-screen App.
 func NewApp(cfg AppConfig) (*App, error) {
-	theme := DefaultDarkTheme()
-	if !cfg.Dark {
-		theme = DefaultLightTheme()
+	// Resolve theme: prefer ThemeName, fall back to Dark bool.
+	themeName := cfg.ThemeName
+	if themeName == "" {
+		if cfg.Dark {
+			themeName = themes.ThemeDark
+		} else {
+			themeName = themes.ThemeLight
+		}
 	}
+	themeData := themes.GetTheme(themeName)
+	styles := themes.BuildStyles(themeData)
+	isDark := themes.IsDarkTheme(themeName)
 	km := DefaultKeyMap()
 
 	ta := textarea.New()
 	ta.Placeholder = "Reply to Claude…"
+	ta.Prompt = "> " // clean prompt matching claude-code-main
 	ta.Focus()
-	ta.SetWidth(80)
+	ta.SetWidth(76) // 80 - 4 (border content area minus side borders)
 	ta.SetHeight(3)
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0 // unlimited
 
+	// Apply theme colors to textarea (matching claude-code-main)
+	promptColor := color.Resolve(themeData.Claude)
+	textColor := color.Resolve(themeData.Text)
+	subtleColor := color.Resolve(themeData.Subtle)
+	ta.FocusedStyle.Base = lipgloss.NewStyle().PaddingLeft(1)
+	ta.BlurredStyle.Base = lipgloss.NewStyle().PaddingLeft(1)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(textColor)
+	ta.BlurredStyle.Text = lipgloss.NewStyle().Foreground(subtleColor)
+	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(subtleColor).Faint(true)
+	ta.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(subtleColor).Faint(true)
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(promptColor)
+	ta.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(subtleColor)
+	ta.Cursor.Style = lipgloss.NewStyle().Foreground(promptColor)
+	ta.FocusedStyle.EndOfBuffer = lipgloss.NewStyle().Foreground(subtleColor)
+	ta.BlurredStyle.EndOfBuffer = lipgloss.NewStyle().Foreground(subtleColor)
+
 	vp := viewport.New(80, 20)
 	vp.SetContent("")
 
-	mdRenderer, err := NewMarkdownRenderer(76, cfg.Dark)
+	mdRenderer, err := NewMarkdownRenderer(76, isDark)
 	if err != nil {
 		return nil, err
+	}
+
+	// Render startup banner as the first message
+	banner := logo.RenderCondensedBanner(logo.BannerData{
+		Version: "0.1.0",
+		Model:   cfg.Model,
+		Billing: "API",
+		CWD:     cfg.WorkDir,
+	}, themeData, 60)
+
+	initialMessages := []ChatMessage{
+		{Role: "banner", Content: banner},
 	}
 
 	return &App{
@@ -105,16 +150,18 @@ func NewApp(cfg AppConfig) (*App, error) {
 		layout:     NewLayout(80, 24),
 		viewport:   vp,
 		textarea:   ta,
-		spinner:    NewSpinner(theme),
-		permission: NewPermissionModel(theme, km),
+		spinner:    NewSpinnerWithTheme(themeData),
+		permission: NewPermissionModelWithTheme(styles, themeData, km),
 		md:         mdRenderer,
 		vimState:   vim.New(),
 		searchBar:  search.NewOverlay(80),
-		toolTrack:  NewToolUseTracker(theme),
+		toolTrack:  NewToolUseTracker(styles),
 		transcript: sess.NewTranscriptView(80, 20),
 		sessStore:  sess.NewSessionStore(""),
+		messages:   initialMessages,
 		status:     "Ready",
-		theme:      theme,
+		themeData:  themeData,
+		styles:     styles,
 		keymap:     km,
 		screenMode: ScreenPrompt,
 		model:      cfg.Model,
@@ -274,8 +321,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ToolStartMsg:
 		a.messages = append(a.messages, ChatMessage{
-			Role:    "tool_use",
-			Content: msg.ToolName + " " + msg.Input,
+			Role:     "tool_use",
+			ToolName: msg.ToolName,
+			Content:  msg.Input,
 		})
 		a.toolTrack.StartTool(msg.ToolID, msg.ToolName, msg.Input)
 		a.spinner.SetLabel(msg.ToolName + "…")
@@ -288,8 +336,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ToolDoneMsg:
 		a.messages = append(a.messages, ChatMessage{
-			Role:    "tool_result",
-			Content: truncateOutput(msg.Output, 200),
+			Role:     "tool_result",
+			ToolName: msg.ToolID,
+			Content:  msg.Output,
+			IsError:  msg.IsError,
 		})
 		a.toolTrack.FinishTool(msg.ToolID, msg.Output, msg.IsError)
 		a.spinner.ShowRandom()
@@ -338,7 +388,13 @@ func (a *App) View() string {
 	}
 
 	header := a.renderStatusLine()
+
+	// Spinner renders inline at the bottom of the body (claude-code-main style)
 	body := a.viewport.View()
+	if a.spinner.IsVisible() {
+		body += "\n" + a.spinner.View()
+	}
+
 	input := a.renderInput()
 	footer := a.renderFooter()
 
@@ -356,43 +412,77 @@ func (a *App) View() string {
 
 func (a *App) renderStatusLine() string {
 	w := a.layout.Width()
+	sep := a.styles.Dimmed.Render(" · ")
 
-	// Left side: model + cost
-	left := a.theme.Highlight.Render(a.model)
+	// ── Left: model · cost · context bar ──
+	var leftParts []string
+	leftParts = append(leftParts, a.styles.Highlight.Render(a.model))
+
 	if a.costUSD > 0 {
-		left += a.theme.Dimmed.Render(fmt.Sprintf(" · $%.2f", a.costUSD))
+		leftParts = append(leftParts, a.styles.Success.Render(formatStatusCost(a.costUSD)))
 	}
 
-	// Right side: permission mode + cwd
-	right := a.theme.Dimmed.Render(a.permMode)
-	if a.cwd != "" {
-		short := shortenPath(a.cwd, 30)
-		right += a.theme.Dimmed.Render(" · " + short)
+	if a.contextPct > 0 {
+		// Color thresholds: <70% blue, 70-90% warning, >90% error
+		fillColor := a.themeData.Suggestion
+		if a.contextPct > 0.9 {
+			fillColor = a.themeData.Error
+		} else if a.contextPct > 0.7 {
+			fillColor = a.themeData.Warning
+		}
+		bar := designsystem.RenderProgressBar(a.contextPct, 8, fillColor, a.themeData.Subtle)
+		label := a.styles.Dimmed.Render(fmt.Sprintf(" %d%%", int(a.contextPct*100)))
+		leftParts = append(leftParts, bar+label)
 	}
+
+	left := strings.Join(leftParts, sep)
+
+	// ── Right: mode · turn · cwd ──
+	var rightParts []string
+	if a.permMode != "" && a.permMode != "default" {
+		rightParts = append(rightParts, a.styles.Warning.Render(a.permMode))
+	}
+	if a.turnCount > 0 {
+		rightParts = append(rightParts, a.styles.Dimmed.Render(fmt.Sprintf("turn %d", a.turnCount)))
+	}
+	if a.cwd != "" {
+		rightParts = append(rightParts, a.styles.Dimmed.Render(shortenPath(a.cwd, 25)))
+	}
+
+	right := strings.Join(rightParts, sep)
 
 	// Pad to full width
 	leftW := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)
-	gap := w - leftW - rightW
+	gap := w - leftW - rightW - 2
 	if gap < 1 {
 		gap = 1
 	}
 
-	return a.theme.StatusBar.Width(w).Render(left + strings.Repeat(" ", gap) + right)
+	return a.styles.StatusBar.Width(w).Render(" " + left + strings.Repeat(" ", gap) + right + " ")
+}
+
+// formatStatusCost formats USD cost for the status bar.
+func formatStatusCost(usd float64) string {
+	if usd < 0.01 {
+		return fmt.Sprintf("$%.4f", usd)
+	}
+	return fmt.Sprintf("$%.2f", usd)
 }
 
 func (a *App) renderInput() string {
 	w := a.layout.BodyWidth()
 	inputView := a.textarea.View()
 
-	// Wrap in top-only round border (claude-code-main style)
+	// Wrap in rounded border without bottom (claude-code-main PromptInput style):
+	//   ╭─────────────────╮
+	//   │ > input text     │
+	//   │                  │
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(a.theme.Border.GetBorderBottomForeground()).
+		BorderForeground(color.Resolve(a.themeData.PromptBorder)).
 		BorderBottom(false).
-		BorderLeft(false).
-		BorderRight(false).
-		Width(w - 2)
+		Width(w - 2) // content width; rendered = w (incl side borders)
 
 	return borderStyle.Render(inputView)
 }
@@ -400,16 +490,7 @@ func (a *App) renderInput() string {
 func (a *App) renderFooter() string {
 	w := a.layout.Width()
 
-	var parts []string
-
-	// Spinner or status (spinnerv2 handles elapsed time internally)
-	if a.spinner.IsVisible() {
-		parts = append(parts, a.spinner.View())
-	} else {
-		parts = append(parts, a.theme.Dimmed.Render(a.status))
-	}
-
-	// Help hint
+	// Shortcut hints below input (claude-code-main style)
 	if a.showHelp {
 		helpLines := []string{}
 		for _, row := range a.keymap.FullHelp() {
@@ -419,14 +500,16 @@ func (a *App) renderFooter() string {
 			}
 			helpLines = append(helpLines, strings.Join(rowParts, "  "))
 		}
-		parts = append(parts, a.theme.Dimmed.Render(strings.Join(helpLines, " | ")))
-	} else {
-		parts = append(parts, a.theme.Dimmed.Render("?: help  ctrl+c: quit  ctrl+k: compact  ctrl+o: transcript"))
+		return a.styles.Dimmed.Render("  " + strings.Join(helpLines, " │ "))
 	}
 
-	line := strings.Join(parts, "  ")
+	hint := "  ! for bash · /help · esc to interrupt"
+	if a.spinner.IsVisible() {
+		hint = ""
+	}
 
-	return a.theme.StatusBar.Width(w).Render(line)
+	_ = w
+	return a.styles.Dimmed.Render(hint)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -442,7 +525,13 @@ func (a *App) reflow() {
 	}
 	a.viewport.Width = w
 	a.viewport.Height = h
-	a.textarea.SetWidth(w)
+	// Textarea width must fit inside border content area:
+	// border Width(w-2) = content w-2, side borders take 2 more from visual width
+	taWidth := w - 4
+	if taWidth < 10 {
+		taWidth = 10
+	}
+	a.textarea.SetWidth(taWidth)
 	_ = a.md.Resize(w - 4)
 	a.refreshViewport()
 }
@@ -452,15 +541,15 @@ func (a *App) refreshViewport() {
 }
 
 func (a *App) renderMessages() string {
-	dot := a.theme.Assistant.Render(appBlackCircle())
-	connector := a.theme.Dimmed.Render("  ⎿  ")
+	dot := a.styles.Dot.Render(figures.BlackCircle())
+	connector := a.styles.Connector.Render("  ⎿  ")
 
 	var sb strings.Builder
 	for _, m := range a.messages {
 		var line string
 		switch m.Role {
 		case "user":
-			line = a.theme.User.Render("❯") + " " + m.Content
+			line = a.styles.DotUser.Render("❯") + " " + m.Content
 		case "assistant":
 			rendered := a.md.Render(m.Content)
 			// First line gets ●, subsequent lines get ⎿ connector
@@ -472,13 +561,24 @@ func (a *App) renderMessages() string {
 				line = dot + " " + rendered
 			}
 		case "system":
-			line = a.theme.System.Render("▶ " + m.Content)
+			line = a.styles.System.Render(figures.BlackCircle() + " " + m.Content)
 		case "error":
-			line = a.theme.Error.Render("⚠ " + m.Content)
+			line = a.styles.Error.Render(figures.BlackCircle() + " " + m.Content)
 		case "tool_use":
-			line = dot + " " + a.theme.ToolUse.Render(m.Content)
+			display := toolDisplayName(m.ToolName)
+			line = dot + " " + a.styles.ToolUse.Render(display)
+			if m.Content != "" {
+				summary := truncateOutput(m.Content, 120)
+				line += "\n" + connector + a.styles.Dimmed.Render(summary)
+			}
 		case "tool_result":
-			line = connector + a.theme.ToolResult.Render(m.Content)
+			if m.IsError {
+				line = connector + a.styles.Error.Render(truncateToolOutput(m.Content, 5))
+			} else {
+				line = connector + a.styles.ToolResult.Render(truncateToolOutput(m.Content, 10))
+			}
+		case "banner":
+			line = m.Content
 		default:
 			line = m.Content
 		}
@@ -488,9 +588,41 @@ func (a *App) renderMessages() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// appBlackCircle returns the platform-appropriate filled circle glyph.
-func appBlackCircle() string {
-	return "●"
+// toolDisplayName returns a human-readable display name for a tool,
+// matching claude-code-main's tool display style.
+func toolDisplayName(name string) string {
+	switch name {
+	case "Bash", "bash":
+		return "Running command"
+	case "Read", "read":
+		return "Reading file"
+	case "Edit", "edit":
+		return "Editing file"
+	case "Write", "write":
+		return "Writing file"
+	case "Glob", "glob":
+		return "Searching files"
+	case "Grep", "grep":
+		return "Searching content"
+	case "ListDir", "list_dir":
+		return "Listing directory"
+	case "WebSearch", "web_search":
+		return "Searching web"
+	case "WebFetch", "web_fetch":
+		return "Fetching URL"
+	default:
+		return name
+	}
+}
+
+// truncateToolOutput shortens multi-line tool output to maxLines.
+func truncateToolOutput(s string, maxLines int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= maxLines {
+		return s
+	}
+	result := strings.Join(lines[:maxLines], "\n")
+	return result + fmt.Sprintf("\n… (%d more lines)", len(lines)-maxLines)
 }
 
 // indentWithConnector prepends the connector prefix to each line.

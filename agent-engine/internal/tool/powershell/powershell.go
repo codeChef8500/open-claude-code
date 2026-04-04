@@ -21,9 +21,10 @@ const (
 
 // Input is the JSON input schema for PowerShellTool.
 type Input struct {
-	Command     string `json:"command"`
-	TimeoutMs   int    `json:"timeout,omitempty"`
-	Description string `json:"description,omitempty"`
+	Command         string `json:"command"`
+	TimeoutMs       int    `json:"timeout,omitempty"`
+	Description     string `json:"description,omitempty"`
+	RunInBackground bool   `json:"run_in_background,omitempty"`
 }
 
 // PowerShellTool executes PowerShell commands on Windows.
@@ -69,7 +70,11 @@ func (t *PowerShellTool) InputSchema() json.RawMessage {
 			},
 			"description": {
 				"type": "string",
-				"description": "Brief description shown to the user."
+				"description": "Brief human-readable description of what this command does."
+			},
+			"run_in_background": {
+				"type": "boolean",
+				"description": "If true, run the command in the background and return immediately with the process ID."
 			}
 		},
 		"required": ["command"]
@@ -87,10 +92,18 @@ Usage:
 - Avoid interactive commands that wait for input.
 - Prefer non-destructive commands — ask the user before deleting files or modifying the system.
 - Use $ErrorActionPreference = "Stop" at the start of multi-command scripts to fail fast.
+- For long-running tasks (e.g., dev servers), set run_in_background to true.
+
+Background execution:
+- Use run_in_background: true for dev servers, watch processes, and long-running builds.
+- You will get back the process ID. You cannot read the background process output.
+- To stop a background process, use Stop-Process -Id <pid>.
 
 Git operations:
 - NEVER skip hooks (--no-verify, --no-gpg-sign, etc.) unless the user explicitly requests it.
-- Use the gh command for GitHub-related tasks.`
+- Use the gh command for GitHub-related tasks.
+- Always provide a meaningful commit message that describes the changes.
+- When creating commits, use git diff --staged to review changes before committing.`
 }
 
 func (t *PowerShellTool) ValidateInput(_ context.Context, input json.RawMessage) error {
@@ -158,7 +171,7 @@ func (t *PowerShellTool) CheckPermissions(_ context.Context, _ json.RawMessage, 
 	return nil // Permission checked externally.
 }
 
-func (t *PowerShellTool) Call(ctx context.Context, input json.RawMessage, _ *tool.UseContext) (<-chan *engine.ContentBlock, error) {
+func (t *PowerShellTool) Call(ctx context.Context, input json.RawMessage, uctx *tool.UseContext) (<-chan *engine.ContentBlock, error) {
 	ch := make(chan *engine.ContentBlock, 2)
 
 	go func() {
@@ -171,6 +184,22 @@ func (t *PowerShellTool) Call(ctx context.Context, input json.RawMessage, _ *too
 		}
 		if in.Command == "" {
 			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: "command is required", IsError: true}
+			return
+		}
+
+		// Background execution.
+		if in.RunInBackground {
+			cmd := exec.CommandContext(ctx, t.psPath, "-NoProfile", "-NonInteractive", "-Command", in.Command)
+			if uctx != nil && uctx.WorkDir != "" {
+				cmd.Dir = uctx.WorkDir
+			}
+			if err := cmd.Start(); err != nil {
+				ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: "Error starting background process: " + err.Error(), IsError: true}
+				return
+			}
+			pid := cmd.Process.Pid
+			go func() { _ = cmd.Wait() }()
+			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: fmt.Sprintf("Started background PowerShell process with PID %d.", pid)}
 			return
 		}
 
@@ -188,6 +217,9 @@ func (t *PowerShellTool) Call(ctx context.Context, input json.RawMessage, _ *too
 
 		// Execute via PowerShell.
 		cmd := exec.CommandContext(execCtx, t.psPath, "-NoProfile", "-NonInteractive", "-Command", in.Command)
+		if uctx != nil && uctx.WorkDir != "" {
+			cmd.Dir = uctx.WorkDir
+		}
 
 		output, err := cmd.CombinedOutput()
 		text := string(output)
@@ -200,6 +232,11 @@ func (t *PowerShellTool) Call(ctx context.Context, input json.RawMessage, _ *too
 			} else {
 				text += fmt.Sprintf("\n\n[Exit error: %v]", err)
 			}
+		}
+
+		// Track git operations.
+		if uctx != nil && strings.Contains(in.Command, "git") {
+			trackPSGitOps(in.Command, uctx)
 		}
 
 		// Truncate if needed.
@@ -216,6 +253,36 @@ func (t *PowerShellTool) Call(ctx context.Context, input json.RawMessage, _ *too
 	}()
 
 	return ch, nil
+}
+
+var gitMutatingCmds = map[string]bool{
+	"add": true, "commit": true, "push": true, "pull": true,
+	"merge": true, "rebase": true, "reset": true, "checkout": true,
+	"switch": true, "restore": true, "cherry-pick": true, "revert": true,
+	"stash": true, "apply": true, "am": true, "mv": true, "rm": true,
+	"clean": true,
+}
+
+func trackPSGitOps(command string, uctx *tool.UseContext) {
+	fields := strings.Fields(command)
+	for i, f := range fields {
+		if f == "git" && i+1 < len(fields) {
+			sub := fields[i+1]
+			if gitMutatingCmds[sub] && uctx.UpdateFileHistoryState != nil {
+				uctx.UpdateFileHistoryState(func(prev *engine.FileHistoryState) *engine.FileHistoryState {
+					if prev == nil {
+						prev = &engine.FileHistoryState{Files: make(map[string][]engine.FileSnapshot)}
+					}
+					prev.Files["__git_op__"] = append(prev.Files["__git_op__"], engine.FileSnapshot{
+						ToolName:  "PowerShell:git-" + sub,
+						ToolUseID: uctx.ToolUseID,
+					})
+					return prev
+				})
+			}
+			break
+		}
+	}
 }
 
 // detectPowerShell finds the PowerShell binary.

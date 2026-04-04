@@ -63,7 +63,13 @@ func (t *GlobTool) InputSchema() json.RawMessage {
 }
 
 func (t *GlobTool) Prompt(_ *tool.UseContext) string {
-	return `- Fast file pattern matching tool that works with any codebase size
+	return `Search for files and subdirectories within a specified directory using glob patterns.
+Search uses smart case and will ignore gitignored files by default.
+Pattern uses the glob format. To avoid overwhelming output, the results are capped at 50 matches by default.
+Use the various arguments to filter the search scope as needed.
+Results will include the type, size, modification time, and relative path.
+
+- Fast file pattern matching tool that works with any codebase size
 - Supports glob patterns like "**/*.js" or "src/**/*.ts"
 - Returns matching file paths sorted by modification time
 - Use this tool when you need to find files by name patterns
@@ -136,7 +142,37 @@ func (t *GlobTool) Call(_ context.Context, input json.RawMessage, uctx *tool.Use
 			return
 		}
 
-		out := strings.Join(matches, "\n")
+		// Apply glob limits from context.
+		maxResults := 50
+		if uctx.GlobLimits != nil && uctx.GlobLimits.MaxResults > 0 {
+			maxResults = uctx.GlobLimits.MaxResults
+		}
+		truncated := false
+		if len(matches) > maxResults {
+			matches = matches[:maxResults]
+			truncated = true
+		}
+
+		// Build output with file info.
+		var sb strings.Builder
+		for _, m := range matches {
+			fullPath := filepath.Join(root, filepath.FromSlash(m))
+			info, err := os.Stat(fullPath)
+			if err != nil {
+				sb.WriteString(fmt.Sprintf("%s\n", m))
+				continue
+			}
+			if info.IsDir() {
+				sb.WriteString(fmt.Sprintf("dir  %s\n", m))
+			} else {
+				sb.WriteString(fmt.Sprintf("file %6d  %s  %s\n", info.Size(), info.ModTime().Format("2006-01-02 15:04"), m))
+			}
+		}
+		if truncated {
+			sb.WriteString(fmt.Sprintf("\n[... results capped at %d. Use a more specific pattern to see more ...]\n", maxResults))
+		}
+
+		out := sb.String()
 		if len(out) > 50_000 {
 			out = out[:50_000] + "\n[... truncated ...]"
 		}
