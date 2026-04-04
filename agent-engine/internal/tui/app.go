@@ -69,6 +69,10 @@ type App struct {
 	// Timing
 	loadingStart time.Time
 
+	// Autocomplete
+	completer *Completer
+	compState CompletionState
+
 	// SubmitFn is called when the user sends a message.
 	SubmitFn func(text string)
 }
@@ -167,6 +171,7 @@ func NewApp(cfg AppConfig) (*App, error) {
 		model:      cfg.Model,
 		permMode:   cfg.PermissionMode,
 		cwd:        cfg.WorkDir,
+		completer:  NewCompleter(DefaultSlashCommands(), nil),
 		SubmitFn:   cfg.SubmitFn,
 	}, nil
 }
@@ -204,6 +209,49 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.KeyMsg:
+		// ── Autocomplete popup intercepts keys when active ──────────
+		if a.compState.Active {
+			switch msg.Type {
+			case tea.KeyTab:
+				if item := a.compState.SelectedItem(); item != nil {
+					a.textarea.SetValue(item.Value + " ")
+				}
+				a.compState.Reset()
+				return a, nil
+			case tea.KeyUp:
+				a.compState.SelectPrev()
+				return a, nil
+			case tea.KeyDown:
+				a.compState.SelectNext()
+				return a, nil
+			case tea.KeyEscape:
+				a.compState.Reset()
+				return a, nil
+			case tea.KeyEnter:
+				// Enter auto-submits the selected command.
+				selected := a.compState.SelectedItem()
+				a.compState.Reset()
+				if selected != nil {
+					text := strings.TrimSpace(selected.Value)
+					if text != "" {
+						a.messages = append(a.messages, ChatMessage{Role: "user", Content: text})
+						a.textarea.Reset()
+						a.status = "Thinking\u2026"
+						a.isLoading = true
+						a.loadingStart = time.Now()
+						a.spinner.ShowRandom()
+						a.refreshViewport()
+						a.viewport.GotoBottom()
+						if a.SubmitFn != nil {
+							a.SubmitFn(text)
+						}
+						return a, a.spinner.Init()
+					}
+				}
+				return a, nil
+			}
+		}
+
 		// Search overlay intercepts keys when visible
 		if a.searchBar.IsVisible() {
 			consumed := a.searchBar.Update(msg, func(q string) []search.Hit {
@@ -249,6 +297,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text == "" {
 				return a, nil
 			}
+			a.compState.Reset()
 			a.messages = append(a.messages, ChatMessage{Role: "user", Content: text})
 			a.textarea.Reset()
 			a.status = "Thinking…"
@@ -371,7 +420,36 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	a.viewport, vpCmd = a.viewport.Update(msg)
 	a.spinner, spCmd = a.spinner.Update(msg)
 	cmds = append(cmds, taCmd, vpCmd, spCmd)
+
+	// ── Auto-trigger slash command completion ─────────────────────────
+	val := a.textarea.Value()
+	if a.completer != nil && strings.HasPrefix(val, "/") {
+		items := a.completer.Complete(val, len(val))
+		if len(items) > 0 {
+			a.compState.Active = true
+			a.compState.Items = items
+			if a.compState.Selected >= len(items) {
+				a.compState.Selected = 0
+			}
+			a.compState.Prefix = val
+		} else {
+			a.compState.Reset()
+		}
+	} else if a.compState.Active {
+		a.compState.Reset()
+	}
+
 	return a, tea.Batch(cmds...)
+}
+
+// SetCompleter replaces the current completer (e.g. after loading dynamic commands).
+func (a *App) SetCompleter(c *Completer) {
+	a.completer = c
+}
+
+// Completer returns the current completer for external updates.
+func (a *App) Completer() *Completer {
+	return a.completer
 }
 
 // AskPermission activates the permission dialog (called from the engine bridge).
@@ -397,6 +475,23 @@ func (a *App) View() string {
 
 	input := a.renderInput()
 	footer := a.renderFooter()
+
+	// Dynamically expand input region when autocomplete popup is visible,
+	// so Compose/padToHeight doesn't clip the popup lines.
+	if a.compState.Active && len(a.compState.Items) > 0 {
+		popupLines := len(a.compState.Items)
+		if popupLines > 8 {
+			popupLines = 8
+		}
+		// popup border adds 2 lines (top+bottom)
+		extra := popupLines + 2
+		a.layout.SetInputHeight(a.layout.defaultInputHeight() + extra)
+		// Shrink viewport to fit
+		a.viewport.Height = a.layout.BodyHeight()
+	} else if a.layout.InputHeight() != a.layout.defaultInputHeight() {
+		a.layout.SetInputHeight(a.layout.defaultInputHeight())
+		a.viewport.Height = a.layout.BodyHeight()
+	}
 
 	view := a.layout.Compose(header, body, input, footer)
 
@@ -484,7 +579,46 @@ func (a *App) renderInput() string {
 		BorderBottom(false).
 		Width(w - 2) // content width; rendered = w (incl side borders)
 
-	return borderStyle.Render(inputView)
+	bordered := borderStyle.Render(inputView)
+
+	// Show autocomplete popup above the input when active.
+	if a.compState.Active && len(a.compState.Items) > 0 {
+		popup := a.renderCompletionPopup(w)
+		return lipgloss.JoinVertical(lipgloss.Left, popup, bordered)
+	}
+
+	return bordered
+}
+
+// renderCompletionPopup draws the slash-command completion menu.
+func (a *App) renderCompletionPopup(w int) string {
+	maxShow := 8
+	items := a.compState.Items
+	if len(items) > maxShow {
+		items = items[:maxShow]
+	}
+
+	var lines []string
+	for i, item := range items {
+		label := item.Label
+		if item.Description != "" {
+			label += "  " + a.styles.Dimmed.Render(item.Description)
+		}
+		if i == a.compState.Selected {
+			label = a.styles.Highlight.Render("\u25b8 " + label)
+		} else {
+			label = "  " + label
+		}
+		lines = append(lines, label)
+	}
+
+	popup := strings.Join(lines, "\n")
+	popupStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(color.Resolve(a.themeData.Suggestion)).
+		Width(w-4).
+		Padding(0, 1)
+	return popupStyle.Render(popup)
 }
 
 func (a *App) renderFooter() string {

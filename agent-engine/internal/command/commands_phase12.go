@@ -9,124 +9,70 @@ import (
 
 // ─── /config ─────────────────────────────────────────────────────────────────
 
-// ConfigCommand views or modifies configuration settings.
+// ConfigCommand opens the config panel.
+// Aligned with claude-code-main commands/config/index.ts (local-jsx).
 type ConfigCommand struct{ BaseCommand }
 
-func (c *ConfigCommand) Name() string      { return "config" }
-func (c *ConfigCommand) Aliases() []string { return []string{"settings"} }
-func (c *ConfigCommand) Description() string {
-	return "View or set configuration. Usage: /config [key] [value]"
-}
-func (c *ConfigCommand) Type() CommandType             { return CommandTypeMeta }
-func (c *ConfigCommand) Source() CommandSource         { return CommandSourceBuiltin }
+func (c *ConfigCommand) Name() string                  { return "config" }
+func (c *ConfigCommand) Aliases() []string             { return []string{"settings"} }
+func (c *ConfigCommand) Description() string           { return "Open config panel" }
+func (c *ConfigCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *ConfigCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *ConfigCommand) Execute(_ context.Context, args []string, ectx *ExecContext) (string, error) {
-	if len(args) == 0 {
-		// Show all known settings.
-		lines := []string{"Configuration:"}
-		if ectx != nil {
-			lines = append(lines, fmt.Sprintf("  model: %s", ectx.Model))
-			lines = append(lines, fmt.Sprintf("  permission_mode: %s", ectx.PermissionMode))
-			lines = append(lines, fmt.Sprintf("  auto_mode: %v", ectx.AutoMode))
-			lines = append(lines, fmt.Sprintf("  verbose: %v", ectx.Verbose))
-			lines = append(lines, fmt.Sprintf("  plan_mode: %v", ectx.PlanModeActive))
-			lines = append(lines, fmt.Sprintf("  fast_mode: %v", ectx.FastMode))
-		}
-		return strings.Join(lines, "\n"), nil
+func (c *ConfigCommand) ExecuteInteractive(_ context.Context, args []string, ectx *ExecContext) (*InteractiveResult, error) {
+	// Pass current config state to the TUI component.
+	data := map[string]interface{}{}
+	if ectx != nil {
+		data["model"] = ectx.Model
+		data["permission_mode"] = ectx.PermissionMode
+		data["auto_mode"] = ectx.AutoMode
+		data["verbose"] = ectx.Verbose
+		data["plan_mode"] = ectx.PlanModeActive
+		data["fast_mode"] = ectx.FastMode
+		data["effort"] = ectx.EffortLevel
 	}
-	if len(args) == 1 {
-		// Get a single setting.
-		key := args[0]
-		if ectx == nil {
-			return fmt.Sprintf("%s = (no session)", key), nil
-		}
-		switch strings.ToLower(key) {
-		case "model":
-			return fmt.Sprintf("model = %s", ectx.Model), nil
-		case "permission_mode", "permissions":
-			return fmt.Sprintf("permission_mode = %s", ectx.PermissionMode), nil
-		case "auto_mode":
-			return fmt.Sprintf("auto_mode = %v", ectx.AutoMode), nil
-		case "verbose":
-			return fmt.Sprintf("verbose = %v", ectx.Verbose), nil
-		default:
-			return fmt.Sprintf("Unknown setting: %s", key), nil
+	if len(args) > 0 {
+		data["key"] = args[0]
+		if len(args) > 1 {
+			data["value"] = strings.Join(args[1:], " ")
 		}
 	}
-	// Set a setting.
-	key := strings.ToLower(args[0])
-	value := strings.Join(args[1:], " ")
-	switch key {
-	case "model":
-		if ectx != nil {
-			ectx.Model = value
-		}
-		return fmt.Sprintf("model set to %s", value), nil
-	case "auto_mode":
-		if ectx != nil {
-			ectx.AutoMode = strings.ToLower(value) == "true" || value == "on" || value == "1"
-		}
-		return fmt.Sprintf("auto_mode set to %s", value), nil
-	case "verbose":
-		if ectx != nil {
-			ectx.Verbose = strings.ToLower(value) == "true" || value == "on" || value == "1"
-		}
-		return fmt.Sprintf("verbose set to %s", value), nil
-	default:
-		return fmt.Sprintf("Unknown or read-only setting: %s", key), nil
-	}
+	return &InteractiveResult{
+		Component: "config",
+		Data:      data,
+	}, nil
 }
 
 // ─── /mcp ────────────────────────────────────────────────────────────────────
 
 // McpCommand manages MCP server connections.
+// Aligned with claude-code-main commands/mcp/index.ts (local-jsx, immediate).
 type McpCommand struct{ BaseCommand }
 
-func (c *McpCommand) Name() string { return "mcp" }
-func (c *McpCommand) Description() string {
-	return "Manage MCP servers. Usage: /mcp [list|add|remove|restart] [args]"
-}
-func (c *McpCommand) Type() CommandType             { return CommandTypeLocal }
+func (c *McpCommand) Name() string                  { return "mcp" }
+func (c *McpCommand) Description() string           { return "Manage MCP servers" }
+func (c *McpCommand) ArgumentHint() string          { return "[list|add|remove|restart]" }
+func (c *McpCommand) IsImmediate() bool             { return true }
+func (c *McpCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *McpCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *McpCommand) Execute(_ context.Context, args []string, ectx *ExecContext) (string, error) {
-	if len(args) == 0 {
-		args = []string{"list"}
+func (c *McpCommand) ExecuteInteractive(_ context.Context, args []string, ectx *ExecContext) (*InteractiveResult, error) {
+	data := map[string]interface{}{}
+	if len(args) > 0 {
+		data["subcommand"] = args[0]
+		data["args"] = args[1:]
 	}
-	sub := strings.ToLower(args[0])
-	switch sub {
-	case "list", "ls":
-		if ectx == nil || len(ectx.ActiveMCPServers) == 0 {
-			return "No MCP servers connected.", nil
-		}
-		lines := []string{"Connected MCP servers:"}
-		for _, s := range ectx.ActiveMCPServers {
-			lines = append(lines, "  - "+s)
-		}
-		return strings.Join(lines, "\n"), nil
-	case "add":
-		if len(args) < 2 {
-			return "Usage: /mcp add <server-name> -- <command> [args...]", nil
-		}
-		return fmt.Sprintf("MCP server add requested: %s (use .mcp.json config for persistent servers)", args[1]), nil
-	case "remove", "rm":
-		if len(args) < 2 {
-			return "Usage: /mcp remove <server-name>", nil
-		}
-		return fmt.Sprintf("MCP server remove requested: %s (use HTTP API for management)", args[1]), nil
-	case "restart":
-		if len(args) < 2 {
-			return "Restarting all MCP servers...", nil
-		}
-		return fmt.Sprintf("Restarting MCP server: %s", args[1]), nil
-	default:
-		return "Unknown sub-command. Usage: /mcp [list|add|remove|restart]", nil
+	if ectx != nil {
+		data["servers"] = ectx.ActiveMCPServers
 	}
+	return &InteractiveResult{
+		Component: "mcp",
+		Data:      data,
+	}, nil
 }
 
 // ─── /init ───────────────────────────────────────────────────────────────────
 
 // InitCommand initializes project configuration files.
-type InitCommand struct{ BaseCommand }
+type InitCommand struct{ BasePromptCommand }
 
 func (c *InitCommand) Name() string { return "init" }
 func (c *InitCommand) Description() string {
@@ -152,7 +98,7 @@ Be concise but comprehensive. Focus on information that would help an AI assista
 // ─── /review ─────────────────────────────────────────────────────────────────
 
 // ReviewCommand triggers a code review prompt.
-type ReviewCommand struct{ BaseCommand }
+type ReviewCommand struct{ BasePromptCommand }
 
 func (c *ReviewCommand) Name() string { return "review" }
 func (c *ReviewCommand) Description() string {
@@ -181,7 +127,7 @@ First examine the changes, then provide a structured review with severity rating
 // ─── /commit ─────────────────────────────────────────────────────────────────
 
 // CommitCommand creates a git commit with an auto-generated message.
-type CommitCommand struct{ BaseCommand }
+type CommitCommand struct{ BasePromptCommand }
 
 func (c *CommitCommand) Name() string { return "commit" }
 func (c *CommitCommand) Description() string {
@@ -279,7 +225,7 @@ func (c *BugReportCommand) Execute(_ context.Context, _ []string, ectx *ExecCont
 	var sb strings.Builder
 	sb.WriteString("## Bug Report\n\n")
 	sb.WriteString("### System Information\n")
-	sb.WriteString(fmt.Sprintf("- Agent Engine: v0.1.0\n"))
+	sb.WriteString("- Agent Engine: v0.1.0\n")
 	sb.WriteString(fmt.Sprintf("- Go: %s\n", runtime.Version()))
 	sb.WriteString(fmt.Sprintf("- OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH))
 	if ectx != nil {
@@ -302,7 +248,8 @@ type QuitCommand struct{ BaseCommand }
 
 func (c *QuitCommand) Name() string                  { return "quit" }
 func (c *QuitCommand) Aliases() []string             { return []string{"q", "exit"} }
-func (c *QuitCommand) Description() string           { return "Exit the current session." }
+func (c *QuitCommand) Description() string           { return "Exit the current session" }
+func (c *QuitCommand) IsImmediate() bool             { return true }
 func (c *QuitCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *QuitCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *QuitCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (string, error) {

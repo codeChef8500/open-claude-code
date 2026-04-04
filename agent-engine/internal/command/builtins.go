@@ -19,8 +19,13 @@ func (c *HelpCommand) Execute(_ context.Context, _ []string, ectx *ExecContext) 
 		return "", nil
 	}
 	lines := []string{"Available commands:"}
-	for _, cmd := range defaultRegistry.Enabled(ectx) {
-		lines = append(lines, fmt.Sprintf("  /%s — %s", cmd.Name(), cmd.Description()))
+	for _, cmd := range defaultRegistry.VisibleFor(ectx, AvailabilityConsole) {
+		desc := FormatDescriptionWithSource(cmd)
+		if hint := cmd.ArgumentHint(); hint != "" {
+			lines = append(lines, fmt.Sprintf("  /%s %s — %s", cmd.Name(), hint, desc))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  /%s — %s", cmd.Name(), desc))
 	}
 	return strings.Join(lines, "\n"), nil
 }
@@ -77,7 +82,14 @@ func (c *CostCommand) Description() string           { return "Show the accumula
 func (c *CostCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *CostCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *CostCommand) Execute(_ context.Context, _ []string, ectx *ExecContext) (string, error) {
-	return "Use the HTTP API /api/v1/sessions/{id} to get cost information.", nil
+	if ectx == nil {
+		return "Cost: unknown (no session context)", nil
+	}
+	lines := []string{fmt.Sprintf("Cost: $%.4f", ectx.CostUSD)}
+	if ectx.TotalTokens > 0 {
+		lines = append(lines, fmt.Sprintf("Total tokens: %d", ectx.TotalTokens))
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // ─── /status ──────────────────────────────────────────────────────────────────

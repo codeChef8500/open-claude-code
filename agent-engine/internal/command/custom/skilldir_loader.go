@@ -9,11 +9,93 @@ import (
 	"github.com/wall-ai/agent-engine/internal/command"
 )
 
-// LoadFromSkillDir scans <workDir>/.claude/commands/*.md and returns a slice
-// of PromptCommands, one per Markdown file.  Files whose names start with "_"
-// are skipped.
-func LoadFromSkillDir(workDir string) []command.Command {
-	dir := filepath.Join(workDir, ".claude", "commands")
+// SkillFrontmatter holds optional YAML frontmatter from a skill .md file.
+// Aligned with claude-code-main's skill command metadata parsing.
+//
+// Frontmatter format (at top of .md file):
+//
+//	---
+//	description: Short description of the skill
+//	argument_hint: <required-arg> [optional-arg]
+//	aliases: alias1, alias2
+//	hidden: false
+//	allowed_tools: tool1, tool2
+//	---
+type SkillFrontmatter struct {
+	Description  string
+	ArgumentHint string
+	Aliases      []string
+	Hidden       bool
+	AllowedTools []string
+}
+
+// parseFrontmatter extracts YAML-like frontmatter from markdown content.
+// Returns the frontmatter and the remaining body content.
+func parseFrontmatter(content string) (SkillFrontmatter, string) {
+	var fm SkillFrontmatter
+
+	trimmed := strings.TrimSpace(content)
+	if !strings.HasPrefix(trimmed, "---") {
+		return fm, content
+	}
+
+	// Find closing ---
+	rest := trimmed[3:]
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return fm, content
+	}
+
+	fmBlock := rest[:idx]
+	body := strings.TrimSpace(rest[idx+4:])
+
+	// Parse simple key: value pairs
+	for _, line := range strings.Split(fmBlock, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(strings.ToLower(parts[0]))
+		val := strings.TrimSpace(parts[1])
+		switch key {
+		case "description":
+			fm.Description = val
+		case "argument_hint", "argumenthint":
+			fm.ArgumentHint = val
+		case "aliases":
+			for _, a := range strings.Split(val, ",") {
+				a = strings.TrimSpace(a)
+				if a != "" {
+					fm.Aliases = append(fm.Aliases, a)
+				}
+			}
+		case "hidden":
+			fm.Hidden = strings.ToLower(val) == "true" || val == "1"
+		case "allowed_tools", "allowedtools":
+			for _, t := range strings.Split(val, ",") {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					fm.AllowedTools = append(fm.AllowedTools, t)
+				}
+			}
+		}
+	}
+
+	return fm, body
+}
+
+// LoadFromSkillDir scans a directory for .md skill files and returns commands.
+// Files whose names start with "_" are skipped. Supports subdirectories
+// (nested commands become "subdir:name" format).
+func LoadFromSkillDir(dir string) []command.Command {
+	return loadSkillsRecursive(dir, "")
+}
+
+func loadSkillsRecursive(dir, prefix string) []command.Command {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -21,11 +103,21 @@ func LoadFromSkillDir(workDir string) []command.Command {
 
 	var cmds []command.Command
 	for _, e := range entries {
-		if e.IsDir() {
+		name := e.Name()
+		if strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") {
 			continue
 		}
-		name := e.Name()
-		if !strings.HasSuffix(name, ".md") || strings.HasPrefix(name, "_") {
+
+		if e.IsDir() {
+			subPrefix := name
+			if prefix != "" {
+				subPrefix = prefix + ":" + name
+			}
+			cmds = append(cmds, loadSkillsRecursive(filepath.Join(dir, name), subPrefix)...)
+			continue
+		}
+
+		if !strings.HasSuffix(name, ".md") {
 			continue
 		}
 
@@ -36,29 +128,87 @@ func LoadFromSkillDir(workDir string) []command.Command {
 		}
 
 		cmdName := strings.ToLower(strings.TrimSuffix(name, ".md"))
-		cmds = append(cmds, &skillPromptCommand{
-			name:    cmdName,
-			content: string(data),
-		})
+		if prefix != "" {
+			cmdName = prefix + ":" + cmdName
+		}
+
+		fm, body := parseFrontmatter(string(data))
+
+		cmd := &skillPromptCommand{
+			cmdName:     cmdName,
+			description: fm.Description,
+			argHint:     fm.ArgumentHint,
+			aliases:     fm.Aliases,
+			hidden:      fm.Hidden,
+			body:        body,
+			loadedFrom:  path,
+		}
+		cmds = append(cmds, cmd)
 	}
 	return cmds
 }
 
-// skillPromptCommand is a PromptCommand generated from a Markdown skill file.
-type skillPromptCommand struct {
-	command.BaseCommand
-	name    string
-	content string
+// LoadFromAllSkillDirs loads skills from both project and user-home directories.
+// Aligned with claude-code-main loadAllCommands() which merges:
+//   - <workDir>/.claude/commands/
+//   - ~/.claude/commands/
+func LoadFromAllSkillDirs(workDir string) []command.Command {
+	var all []command.Command
+
+	// Project-level skills
+	projectDir := filepath.Join(workDir, ".claude", "commands")
+	all = append(all, LoadFromSkillDir(projectDir)...)
+
+	// User-level skills
+	home, err := os.UserHomeDir()
+	if err == nil {
+		userDir := filepath.Join(home, ".claude", "commands")
+		all = append(all, LoadFromSkillDir(userDir)...)
+	}
+
+	return all
 }
 
-func (c *skillPromptCommand) Name() string        { return c.name }
-func (c *skillPromptCommand) Description() string { return "Skill: " + c.name }
+// NewSkillDirLoader returns a DynamicLoader that can be registered with
+// Registry.AddLoader() for automatic discovery.
+func NewSkillDirLoader(workDir string) command.DynamicLoader {
+	return func() []command.Command {
+		return LoadFromAllSkillDirs(workDir)
+	}
+}
+
+// skillPromptCommand is a PromptCommand generated from a Markdown skill file.
+type skillPromptCommand struct {
+	command.BasePromptCommand
+	cmdName     string
+	description string
+	argHint     string
+	aliases     []string
+	hidden      bool
+	body        string
+	loadedFrom  string
+}
+
+func (c *skillPromptCommand) Name() string { return c.cmdName }
+func (c *skillPromptCommand) Description() string {
+	if c.description != "" {
+		return c.description
+	}
+	return "Skill: " + c.cmdName
+}
+func (c *skillPromptCommand) ArgumentHint() string { return c.argHint }
+func (c *skillPromptCommand) Aliases() []string    { return c.aliases }
+func (c *skillPromptCommand) IsHidden() bool       { return c.hidden }
+func (c *skillPromptCommand) Source() command.CommandSource {
+	return command.CommandSourceCustom
+}
+func (c *skillPromptCommand) LoadedFrom() command.CommandLoadedFrom { return command.LoadedFromSkills }
 func (c *skillPromptCommand) Type() command.CommandType {
 	return command.CommandTypePrompt
 }
 func (c *skillPromptCommand) IsEnabled(_ *command.ExecContext) bool { return true }
 func (c *skillPromptCommand) PromptContent(args []string, _ *command.ExecContext) (string, error) {
-	text := c.content
+	text := c.body
 	if len(args) > 0 {
 		text += "\n\nArguments: " + strings.Join(args, " ")
 	}
@@ -66,15 +216,11 @@ func (c *skillPromptCommand) PromptContent(args []string, _ *command.ExecContext
 }
 
 // RegisterSkillDir loads all skill commands from workDir and registers them
-// into the given registry.  Already-registered names are silently skipped.
+// into the given registry using RegisterOrReplace semantics.
 func RegisterSkillDir(r *command.Registry, workDir string) {
-	cmds := LoadFromSkillDir(workDir)
-	for _, cmd := range cmds {
-		// Use a recover to skip duplicate-name panics from Register.
-		func() {
-			defer func() { recover() }()
-			r.Register(cmd)
-		}()
+	cmds := LoadFromAllSkillDirs(workDir)
+	if len(cmds) > 0 {
+		r.RegisterOrReplace(cmds...)
 	}
 }
 

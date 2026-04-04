@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wall-ai/agent-engine/internal/command"
 	"github.com/wall-ai/agent-engine/internal/hooks"
 	"github.com/wall-ai/agent-engine/internal/state"
 )
@@ -33,6 +35,9 @@ type Engine struct {
 	permChecker        GlobalPermissionChecker
 	autoModeClassifier AutoModeClassifier
 	hookExecutor       *hooks.Executor
+
+	// Command system — intercepts slash commands before model invocation.
+	commandRegistry *command.Registry
 }
 
 // New creates and initialises an Engine from the given config.
@@ -99,8 +104,17 @@ func (e *Engine) SetAutoModeClassifier(ac AutoModeClassifier) { e.autoModeClassi
 // SetHookExecutor installs the hooks executor.
 func (e *Engine) SetHookExecutor(he *hooks.Executor) { e.hookExecutor = he }
 
+// SetCommandRegistry installs the slash command registry for interception.
+func (e *Engine) SetCommandRegistry(r *command.Registry) { e.commandRegistry = r }
+
+// CommandRegistry returns the command registry (may be nil).
+func (e *Engine) CommandRegistry() *command.Registry { return e.commandRegistry }
+
 // HookExecutor returns the hook executor (may be nil).
 func (e *Engine) HookExecutor() *hooks.Executor { return e.hookExecutor }
+
+// Config returns the engine configuration.
+func (e *Engine) Config() *EngineConfig { return &e.cfg }
 
 // Store returns the mutable state store.
 func (e *Engine) Store() *state.Store { return e.store }
@@ -108,10 +122,21 @@ func (e *Engine) Store() *state.Store { return e.store }
 // SubmitMessage sends a user message and returns a channel of StreamEvents.
 // The channel is closed when the engine has finished processing (either
 // naturally or due to context cancellation).
+//
+// If the message starts with a known slash command (e.g. /help, /clear),
+// it is dispatched by the command system and the result is emitted as
+// an EventCommandResult without invoking the LLM.
 func (e *Engine) SubmitMessage(ctx context.Context, params QueryParams) <-chan *StreamEvent {
 	ch := make(chan *StreamEvent, 128)
 	go func() {
 		defer close(ch)
+
+		// ── Slash command interception ────────────────────────────────
+		if e.commandRegistry != nil && e.commandRegistry.IsSlashCommand(params.Text) {
+			e.handleSlashCommand(ctx, params.Text, ch)
+			return
+		}
+
 		if err := runQueryLoop(ctx, e, params, ch); err != nil {
 			if ctx.Err() == nil {
 				ch <- &StreamEvent{
@@ -122,6 +147,107 @@ func (e *Engine) SubmitMessage(ctx context.Context, params QueryParams) <-chan *
 		}
 	}()
 	return ch
+}
+
+// handleSlashCommand dispatches a slash command and emits results.
+func (e *Engine) handleSlashCommand(ctx context.Context, text string, ch chan<- *StreamEvent) {
+	// Build ExecContext from engine state.
+	ectx := e.buildExecContext()
+
+	exec := command.NewExecutor(e.commandRegistry)
+	result, err := exec.Execute(ctx, text, ectx)
+	if err != nil {
+		ch <- &StreamEvent{
+			Type:  EventError,
+			Error: fmt.Sprintf("command error: %v", err),
+		}
+		return
+	}
+
+	// Handle special return values from the command system.
+	switch {
+	case result == "__quit__":
+		ch <- &StreamEvent{Type: EventCommandResult, Text: result}
+		ch <- &StreamEvent{Type: EventDone}
+		return
+
+	case strings.HasPrefix(result, "__prompt__:"):
+		// Prompt command: inject the prompt content as a new user message
+		// and run the query loop with it.
+		promptContent := strings.TrimPrefix(result, "__prompt__:")
+		promptParams := QueryParams{
+			Text:   promptContent,
+			Config: QueryConfig{},
+			Source: QuerySourceSlashCommand,
+		}
+		if err := runQueryLoop(ctx, e, promptParams, ch); err != nil {
+			if ctx.Err() == nil {
+				ch <- &StreamEvent{Type: EventError, Error: err.Error()}
+			}
+		}
+		return
+
+	case strings.HasPrefix(result, "__fork_prompt__:"):
+		// Forked prompt command: same as prompt but tagged for sub-agent.
+		promptContent := strings.TrimPrefix(result, "__fork_prompt__:")
+		promptParams := QueryParams{
+			Text:   promptContent,
+			Config: QueryConfig{},
+			Source: QuerySourceForkedCommand,
+		}
+		if err := runQueryLoop(ctx, e, promptParams, ch); err != nil {
+			if ctx.Err() == nil {
+				ch <- &StreamEvent{Type: EventError, Error: err.Error()}
+			}
+		}
+		return
+
+	case strings.HasPrefix(result, "__interactive__:"):
+		// Interactive command result — pass component name to caller.
+		ch <- &StreamEvent{Type: EventCommandResult, Text: result}
+		ch <- &StreamEvent{Type: EventDone}
+		return
+
+	default:
+		// Regular command output.
+		if result != "" {
+			ch <- &StreamEvent{Type: EventCommandResult, Text: result}
+		}
+		ch <- &StreamEvent{Type: EventDone}
+	}
+}
+
+// buildExecContext creates a command.ExecContext from engine state.
+func (e *Engine) buildExecContext() *command.ExecContext {
+	ectx := &command.ExecContext{
+		SessionID:      e.cfg.SessionID,
+		WorkDir:        e.cfg.WorkDir,
+		Model:          e.cfg.Model,
+		PermissionMode: e.cfg.PermissionMode,
+		AutoMode:       e.cfg.AutoMode,
+		Verbose:        e.cfg.Verbose,
+	}
+
+	// Pull dynamic state from the store if available.
+	if e.store != nil {
+		if v := e.store.Get("turn_count"); v != nil {
+			if tc, ok := v.(int); ok {
+				ectx.TurnCount = tc
+			}
+		}
+		if v := e.store.Get("total_tokens"); v != nil {
+			if tt, ok := v.(int); ok {
+				ectx.TotalTokens = tt
+			}
+		}
+		if v := e.store.Get("cost_usd"); v != nil {
+			if c, ok := v.(float64); ok {
+				ectx.CostUSD = c
+			}
+		}
+	}
+
+	return ectx
 }
 
 // Close releases any resources held by the engine.

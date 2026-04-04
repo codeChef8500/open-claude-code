@@ -25,6 +25,7 @@ const (
 	EventProgress        StreamEventType = "progress"
 	EventAttachment      StreamEventType = "attachment"
 	EventCompactBoundary StreamEventType = "compact_boundary"
+	EventCommandResult   StreamEventType = "command_result"
 )
 
 // StreamEvent is produced by the engine and consumed by SDK callers or HTTP SSE.
@@ -345,6 +346,8 @@ const (
 	QuerySourceSessionMemory QuerySource = "session_memory"
 	QuerySourceAgent         QuerySource = "agent"
 	QuerySourceSkill         QuerySource = "skill"
+	QuerySourceSlashCommand  QuerySource = "slash_command"
+	QuerySourceForkedCommand QuerySource = "forked_command"
 )
 
 // QueryParams contains per-request parameters for Engine.SubmitMessage.

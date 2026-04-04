@@ -64,13 +64,27 @@ func Execute(ctx context.Context, name string, args []string, ectx *ExecContext)
 
 func dispatchCommand(ctx context.Context, cmd Command, name string, args []string, ectx *ExecContext) (string, error) {
 	switch c := cmd.(type) {
+	case InteractiveCommand:
+		// InteractiveCommand returns structured data for TUI rendering.
+		result, err := c.ExecuteInteractive(ctx, args, ectx)
+		if err != nil {
+			return "", err
+		}
+		if result == nil {
+			return "", nil
+		}
+		// Encode as __interactive__:<component> for the TUI layer to handle.
+		return "__interactive__:" + result.Component, nil
 	case LocalCommand:
-		// Handles both LocalCommand and MetaCommand (same Execute signature).
 		return c.Execute(ctx, args, ectx)
 	case PromptCommand:
 		content, err := c.PromptContent(args, ectx)
 		if err != nil {
 			return "", err
+		}
+		// Check if the command should run as a forked sub-agent.
+		if meta := c.PromptMeta(); meta != nil && meta.ExecContext == "fork" {
+			return "__fork_prompt__:" + content, nil
 		}
 		return "__prompt__:" + content, nil
 	default:

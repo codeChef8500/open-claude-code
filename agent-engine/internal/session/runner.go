@@ -66,21 +66,17 @@ func (r *Runner) handleCommand(ctx context.Context, input string) bool {
 	switch strings.ToLower(cmdName) {
 	case "quit", "exit", "q":
 		r.OnSystem("Goodbye!")
+		r.OnDone()
 		return false
 	}
 
-	ectx := &command.ExecContext{
-		WorkDir:   r.result.Engine.WorkDir(),
-		SessionID: r.result.Engine.SessionID(),
-	}
+	ectx := r.buildExecContext()
 
 	output, err := r.result.CmdExecutor.Execute(ctx, input, ectx)
 	if err != nil {
 		r.OnError(fmt.Errorf("command error: %w", err))
+		r.OnDone()
 		return true
-	}
-	if output != "" {
-		r.OnSystem(output)
 	}
 
 	r.result.SessionTracker.RecordCommand()
@@ -88,7 +84,136 @@ func (r *Runner) handleCommand(ctx context.Context, input string) bool {
 		"command": cmdName,
 	})
 
-	return true
+	// Dispatch based on special return-value prefixes from the executor.
+	return r.dispatchCommandResult(ctx, output)
+}
+
+// dispatchCommandResult handles the special return values from command execution.
+func (r *Runner) dispatchCommandResult(ctx context.Context, output string) bool {
+	switch {
+	case output == "__quit__":
+		r.OnSystem("Goodbye!")
+		r.OnDone()
+		return false
+
+	case output == "__clear_history__":
+		r.OnSystem("Conversation cleared.")
+		r.OnDone()
+		return true
+
+	case output == "__compact__":
+		r.OnSystem("Compacting conversation context…")
+		r.OnDone()
+		return true
+
+	case strings.HasPrefix(output, "__prompt__:"):
+		// Prompt command: forward content to the engine as a user message.
+		promptContent := strings.TrimPrefix(output, "__prompt__:")
+		r.handleMessage(ctx, promptContent)
+		return true
+
+	case strings.HasPrefix(output, "__fork_prompt__:"):
+		// Forked prompt command: same as prompt (sub-agent not yet supported).
+		promptContent := strings.TrimPrefix(output, "__fork_prompt__:")
+		r.handleMessage(ctx, promptContent)
+		return true
+
+	case strings.HasPrefix(output, "__interactive__:"):
+		// Interactive command: render a text-mode fallback.
+		component := strings.TrimPrefix(output, "__interactive__:")
+		r.OnSystem(formatInteractiveResult(component))
+		r.OnDone()
+		return true
+
+	default:
+		if output != "" {
+			r.OnSystem(output)
+		}
+		r.OnDone()
+		return true
+	}
+}
+
+// buildExecContext creates a rich ExecContext from the current session state.
+func (r *Runner) buildExecContext() *command.ExecContext {
+	eng := r.result.Engine
+	ectx := &command.ExecContext{
+		WorkDir:   eng.WorkDir(),
+		SessionID: eng.SessionID(),
+	}
+	// Pull config from the engine.
+	if cfg := eng.Config(); cfg != nil {
+		ectx.Model = cfg.Model
+		ectx.AutoMode = cfg.AutoMode
+		ectx.Verbose = cfg.Verbose
+		ectx.PermissionMode = cfg.PermissionMode
+	}
+	// Pull dynamic state from the store.
+	if s := eng.Store(); s != nil {
+		if v := s.Get("cost_usd"); v != nil {
+			if c, ok := v.(float64); ok {
+				ectx.CostUSD = c
+			}
+		}
+		if v := s.Get("turn_count"); v != nil {
+			if tc, ok := v.(int); ok {
+				ectx.TurnCount = tc
+			}
+		}
+		if v := s.Get("total_tokens"); v != nil {
+			if tt, ok := v.(int); ok {
+				ectx.TotalTokens = tt
+			}
+		}
+	}
+	return ectx
+}
+
+// formatInteractiveResult returns human-readable text for interactive command
+// components that cannot render a full TUI panel (text-mode fallback).
+func formatInteractiveResult(component string) string {
+	switch component {
+	case "agents":
+		return "Agent configurations — use /agents list or /agents add <name> to manage."
+	case "tasks":
+		return "Background tasks — no active tasks."
+	case "memory":
+		return "Memory files — edit CLAUDE.md in your project root or ~/.claude/CLAUDE.md for global memory."
+	case "resume":
+		return "Use /resume <session-id> to resume a previous conversation."
+	case "session":
+		return "Session info — use /status for current session details."
+	case "permissions":
+		return "Permission rules — use /permissions to view allowed and denied tools."
+	case "plugin":
+		return "Plugin management — use /plugin list to see installed plugins."
+	case "skills":
+		return "Skills — use /skills to list available skill commands."
+	case "config":
+		return "Configuration panel — use /config to view current settings."
+	case "mcp":
+		return "MCP server management — use /mcp list to see connected servers."
+	case "plan":
+		return "Plan mode toggled. Use /plan <message> to plan without executing."
+	case "fast":
+		return "Fast mode toggled (uses smaller, faster model for simple tasks)."
+	case "effort":
+		return "Effort level — use /effort [low|medium|high|max|auto] to set."
+	case "theme":
+		return "Theme — use /theme <name> to switch themes."
+	case "branch":
+		return "Branched current conversation."
+	case "diff":
+		return "Diff — showing uncommitted changes."
+	case "review":
+		return "Review — analyzing recent changes."
+	case "login":
+		return "Authentication — visit the URL shown to complete login."
+	case "logout":
+		return "Logged out."
+	default:
+		return fmt.Sprintf("/%s executed.", component)
+	}
 }
 
 // handleMessage sends a user message through the engine.

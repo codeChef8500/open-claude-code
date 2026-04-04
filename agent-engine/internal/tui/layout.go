@@ -34,16 +34,21 @@ type Layout struct {
 	bodyHeight int
 }
 
+const defaultInputH = 5 // 1 top border + 3 textarea lines + 1 padding
+
 // NewLayout creates a layout with default region sizes.
 func NewLayout(width, height int) Layout {
 	l := Layout{
 		headerHeight: 1,
 		footerHeight: 1,
-		inputHeight:  5, // 1 top border + 3 textarea lines + 1 padding
+		inputHeight:  defaultInputH,
 	}
 	l.Resize(width, height)
 	return l
 }
+
+// defaultInputHeight returns the baseline input region height (without popup).
+func (l *Layout) defaultInputHeight() int { return defaultInputH }
 
 // Resize recalculates all region dimensions.
 func (l *Layout) Resize(width, height int) {

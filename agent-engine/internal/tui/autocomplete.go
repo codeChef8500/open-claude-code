@@ -51,28 +51,97 @@ func NewCompleter(commands []CompletionItem, tools []CompletionItem) *Completer 
 	}
 }
 
-// DefaultSlashCommands returns the built-in slash commands.
+// SetCommands replaces the current command completion list.
+func (c *Completer) SetCommands(cmds []CompletionItem) {
+	c.commands = cmds
+}
+
+// SetTools replaces the current tool completion list.
+func (c *Completer) SetTools(tools []CompletionItem) {
+	c.tools = tools
+}
+
+// DefaultSlashCommands returns the built-in slash commands for autocomplete.
+// This is the static fallback list; use RefreshCompleterFromRegistry (in
+// command_bridge.go) for a dynamic list that tracks the command registry.
 func DefaultSlashCommands() []CompletionItem {
-	return []CompletionItem{
-		{Label: "/help", Value: "/help", Description: "Show available commands", Kind: CompletionCommand},
-		{Label: "/compact", Value: "/compact", Description: "Compact conversation history", Kind: CompletionCommand},
-		{Label: "/clear", Value: "/clear", Description: "Clear conversation", Kind: CompletionCommand},
-		{Label: "/context", Value: "/context", Description: "Show context usage", Kind: CompletionCommand},
-		{Label: "/cost", Value: "/cost", Description: "Show token costs", Kind: CompletionCommand},
-		{Label: "/config", Value: "/config", Description: "Show/set configuration", Kind: CompletionCommand},
-		{Label: "/memory", Value: "/memory", Description: "Manage session memory", Kind: CompletionCommand},
-		{Label: "/model", Value: "/model", Description: "Switch model", Kind: CompletionCommand},
-		{Label: "/permissions", Value: "/permissions", Description: "Show permission settings", Kind: CompletionCommand},
-		{Label: "/status", Value: "/status", Description: "Show session status", Kind: CompletionCommand},
-		{Label: "/bug", Value: "/bug", Description: "Report a bug", Kind: CompletionCommand},
-		{Label: "/quit", Value: "/quit", Description: "Exit the application", Kind: CompletionCommand},
-		{Label: "/vim", Value: "/vim", Description: "Toggle vim mode", Kind: CompletionCommand},
-		{Label: "/login", Value: "/login", Description: "Authenticate", Kind: CompletionCommand},
-		{Label: "/doctor", Value: "/doctor", Description: "Check system health", Kind: CompletionCommand},
-		{Label: "/init", Value: "/init", Description: "Initialize CLAUDE.md", Kind: CompletionCommand},
-		{Label: "/mcp", Value: "/mcp", Description: "MCP server management", Kind: CompletionCommand},
-		{Label: "/review", Value: "/review", Description: "Review recent changes", Kind: CompletionCommand},
+	type entry struct{ name, desc string }
+	cmds := []entry{
+		// Core
+		{"/help", "Show available commands"},
+		{"/compact", "Compact conversation history"},
+		{"/clear", "Clear conversation history and free up context"},
+		{"/context", "Show context window usage"},
+		{"/cost", "Show token usage and cost"},
+		{"/model", "Switch or show current model"},
+		{"/status", "Show session status"},
+		{"/quit", "Exit the current session"},
+
+		// Config & settings
+		{"/config", "Open config panel"},
+		{"/mcp", "Manage MCP servers"},
+		{"/permissions", "Manage allow & deny tool permission rules"},
+		{"/hooks", "View hook configurations for tool events"},
+		{"/memory", "Edit Claude memory files"},
+		{"/theme", "Change the theme"},
+		{"/vim", "Toggle vim keybinding mode"},
+		{"/verbose", "Toggle verbose output"},
+
+		// Session & conversation
+		{"/plan", "Toggle plan mode or view session plan"},
+		{"/fast", "Toggle fast mode (smaller, faster model)"},
+		{"/effort", "Set effort level for model usage"},
+		{"/auto-mode", "Toggle or show Auto Mode status"},
+		{"/session", "Show session info and remote URL"},
+		{"/resume", "Resume a previous conversation"},
+		{"/rename", "Rename the current conversation"},
+		{"/branch", "Create a branch of the current conversation"},
+		{"/rewind", "Restore code and/or conversation to a previous point"},
+		{"/export", "Export conversation to a file or clipboard"},
+		{"/copy", "Copy last response to clipboard"},
+
+		// Git & code
+		{"/diff", "Show uncommitted changes and per-turn diffs"},
+		{"/commit", "Create a git commit with generated message"},
+		{"/review", "Review recent changes"},
+		{"/pr-comments", "Address PR review comments"},
+		{"/init", "Initialize project configuration"},
+
+		// Agents & tasks
+		{"/agents", "Manage agent configurations"},
+		{"/tasks", "List and manage background tasks"},
+
+		// Account & auth
+		{"/login", "Sign in with your Anthropic account"},
+		{"/logout", "Sign out from your Anthropic account"},
+		{"/usage", "Show plan usage limits"},
+
+		// System
+		{"/bug", "Report a bug"},
+		{"/doctor", "Diagnose and verify installation"},
+		{"/skills", "List available skills"},
+		{"/plugin", "Manage plugins"},
+		{"/feedback", "Send feedback about Claude Code"},
+		{"/stats", "Show session statistics"},
+		{"/upgrade", "Upgrade to the latest version"},
+		{"/add-dir", "Add a new working directory"},
+
+		// UI
+		{"/keybindings", "Show or configure keyboard shortcuts"},
+		{"/stickers", "Order Claude Code stickers"},
+		{"/release-notes", "Show release notes"},
 	}
+
+	items := make([]CompletionItem, 0, len(cmds))
+	for _, c := range cmds {
+		items = append(items, CompletionItem{
+			Label:       c.name,
+			Value:       c.name,
+			Description: c.desc,
+			Kind:        CompletionCommand,
+		})
+	}
+	return items
 }
 
 // AddRecentFile adds a file path to the recent files list for @-mention completion.
@@ -115,14 +184,22 @@ func (c *Completer) Complete(input string, cursorPos int) []CompletionItem {
 func (c *Completer) completeSlashCommand(prefix string) []CompletionItem {
 	prefix = strings.ToLower(prefix)
 	var matches []CompletionItem
+	seen := map[string]bool{}
 	for _, cmd := range c.commands {
 		if strings.HasPrefix(strings.ToLower(cmd.Label), prefix) {
-			matches = append(matches, cmd)
+			if !seen[cmd.Label] {
+				matches = append(matches, cmd)
+				seen[cmd.Label] = true
+			}
 		}
 	}
 	sort.Slice(matches, func(i, j int) bool {
 		return matches[i].Label < matches[j].Label
 	})
+	// Cap at 15 visible suggestions.
+	if len(matches) > 15 {
+		matches = matches[:15]
+	}
 	return matches
 }
 
