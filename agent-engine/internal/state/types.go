@@ -77,6 +77,20 @@ type AppState struct {
 	// ── Denial tracking ──────────────────────────────────────────────
 	DenialTracking DenialTrackingStateRef
 
+	// ── KAIROS daemon mode ──────────────────────────────────────────
+	KairosActive          bool   // true when running in assistant daemon mode
+	SessionKind           string // SessionKind* constant: "interactive", "bg", "daemon", "daemon-worker"
+	UserMsgOptIn          bool   // BriefTool (SendUserMessage) opt-in flag
+	ScheduledTasksEnabled bool   // cron scheduler enabled for this session
+	DaemonWorkerID        string // current daemon-worker epoch/identity (CCR)
+	MessagingSocketPath   string // UDS/Named Pipe path for IPC
+
+	// ── Buddy companion ──────────────────────────────────────────
+	BuddyEnabled      bool   // feature flag — controls entire companion system
+	CompanionReaction string // current speech bubble text (empty = hidden)
+	CompanionPetAt    int64  // Unix ms timestamp of last /buddy pet
+	CompanionMuted    bool   // muted mode — hide sprite, skip intro injection
+
 	// Listeners notified on any state mutation.
 	listeners []func()
 }

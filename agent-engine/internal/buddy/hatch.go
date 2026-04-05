@@ -5,57 +5,55 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/provider"
 )
 
-const hatchSystemPrompt = `You are a companion naming oracle. Given a companion's species and rarity, 
-suggest a single creative, memorable name. Respond with JSON only: {"name": "..."}`
+const hatchSystemPrompt = `You are a companion soul oracle. Given a companion's species, rarity, and an inspiration seed number, generate a creative name and a short personality description (one sentence).
 
-// Hatch uses an LLM side-query to give the companion a generated name, then
-// returns the fully assembled Companion.
-func Hatch(ctx context.Context, prov provider.Provider, seed uint32) (*Companion, error) {
-	bones := GenerateBones(seed)
+Respond with JSON only: {"name": "...", "personality": "..."}`
 
-	name, err := generateName(ctx, prov, bones)
+// Hatch uses an LLM side-query to generate the companion's soul (name + personality),
+// then returns the fully assembled Companion.
+// Matches claude-code-main's hatching flow: roll bones → LLM generates soul → merge.
+func Hatch(ctx context.Context, prov provider.Provider, userID string) (*Companion, error) {
+	r := RollCompanion(userID)
+
+	soul, err := generateSoul(ctx, prov, r.Bones, r.InspirationSeed)
 	if err != nil {
-		// Fall back to a deterministic name if the LLM call fails.
-		name = defaultName(bones)
+		// Fall back to deterministic soul if the LLM call fails.
+		soul = defaultSoul(r.Bones, r.InspirationSeed)
 	}
 
 	return &Companion{
-		Bones: bones,
-		Soul: CompanionSoul{
-			Name:      name,
-			Mood:      0.7,
-			Energy:    0.8,
-			Affection: 0.5,
-		},
+		CompanionBones: r.Bones,
+		CompanionSoul:  *soul,
+		HatchedAt:      time.Now().UnixMilli(),
 	}, nil
 }
 
-// HatchWithSeed is like Hatch but skips the LLM call and uses a default name.
-func HatchWithSeed(seed uint32) *Companion {
-	bones := GenerateBones(seed)
+// HatchWithoutLLM hatches a companion without LLM (test/offline use).
+func HatchWithoutLLM(userID string) *Companion {
+	r := RollCompanion(userID)
+	soul := defaultSoul(r.Bones, r.InspirationSeed)
 	return &Companion{
-		Bones: bones,
-		Soul: CompanionSoul{
-			Name:      defaultName(bones),
-			Mood:      0.7,
-			Energy:    0.8,
-			Affection: 0.5,
-		},
+		CompanionBones: r.Bones,
+		CompanionSoul:  *soul,
+		HatchedAt:      time.Now().UnixMilli(),
 	}
 }
 
-func generateName(ctx context.Context, prov provider.Provider, bones CompanionBones) (string, error) {
-	userText := fmt.Sprintf("Species: %s\nRarity: %s\nPrimary hue: %.0f°\n\nSuggest one name.",
-		bones.Species, bones.Rarity, bones.PrimaryHue)
+func generateSoul(ctx context.Context, prov provider.Provider, bones CompanionBones, inspirationSeed int) (*CompanionSoul, error) {
+	userText := fmt.Sprintf(
+		"Species: %s\nRarity: %s\nShiny: %v\nInspiration seed: %d\n\nGenerate a name and personality.",
+		bones.Species, bones.Rarity, bones.Shiny, inspirationSeed,
+	)
 
 	params := provider.CallParams{
 		Model:        "claude-haiku-4-5",
-		MaxTokens:    64,
+		MaxTokens:    128,
 		SystemPrompt: hatchSystemPrompt,
 		Messages: []*engine.Message{
 			{
@@ -67,7 +65,7 @@ func generateName(ctx context.Context, prov provider.Provider, bones CompanionBo
 
 	eventCh, err := prov.CallModel(ctx, params)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var sb strings.Builder
@@ -78,31 +76,51 @@ func generateName(ctx context.Context, prov provider.Provider, bones CompanionBo
 	}
 
 	var resp struct {
-		Name string `json:"name"`
+		Name        string `json:"name"`
+		Personality string `json:"personality"`
 	}
 	text := strings.TrimSpace(sb.String())
 	text = strings.TrimPrefix(text, "```json")
 	text = strings.TrimPrefix(text, "```")
 	text = strings.TrimSuffix(text, "```")
 	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &resp); err != nil {
-		return "", fmt.Errorf("name parse: %w", err)
+		return nil, fmt.Errorf("soul parse: %w", err)
 	}
 	if resp.Name == "" {
-		return "", fmt.Errorf("empty name from LLM")
+		return nil, fmt.Errorf("empty name from LLM")
 	}
-	return resp.Name, nil
+	return &CompanionSoul{
+		Name:        resp.Name,
+		Personality: resp.Personality,
+	}, nil
 }
 
-// defaultName builds a deterministic fallback name from bones.
-func defaultName(b CompanionBones) string {
-	rng := newMulberry32(uint32(b.PrimaryHue*1000) ^ uint32(len(b.Species)))
-	prefixes := []string{"Astra", "Blaze", "Cosmo", "Dusk", "Echo",
+// defaultSoul builds a deterministic fallback soul from bones.
+func defaultSoul(b CompanionBones, inspirationSeed int) *CompanionSoul {
+	rng := newMulberry32(uint32(inspirationSeed))
+	prefixes := []string{
+		"Astra", "Blaze", "Cosmo", "Dusk", "Echo",
 		"Flux", "Glim", "Haze", "Iris", "Jest",
-		"Koda", "Lune", "Myst", "Nova", "Onyx"}
+		"Koda", "Lune", "Myst", "Nova", "Onyx",
+	}
 	idx := int(rng.next()) % len(prefixes)
 	s := string(b.Species)
-	suffix := capitalise(s[:1]) + s[1:3]
-	return prefixes[idx] + suffix
+	suffix := capitalise(s[:1])
+	if len(s) >= 3 {
+		suffix += s[1:3]
+	}
+	personalities := []string{
+		"calm and methodical, loves tracing bugs",
+		"chaotic but endearing, easily distracted by shiny things",
+		"wise beyond their years, always offering sage advice",
+		"mischievous and playful, hides easter eggs everywhere",
+		"stoic and reliable, the quiet anchor of any session",
+	}
+	pIdx := int(rng.next()) % len(personalities)
+	return &CompanionSoul{
+		Name:        prefixes[idx] + suffix,
+		Personality: personalities[pIdx],
+	}
 }
 
 // capitalise upper-cases the first byte of a pure-ASCII string.

@@ -87,6 +87,31 @@ type SystemMsg struct {
 	Text string
 }
 
+// ── Companion Bubbletea messages ─────────────────────────────────────────────
+
+// CompanionLoadMsg signals that a companion has been loaded/hatched.
+type CompanionLoadMsg struct {
+	Companion interface{} // *buddy.Companion — interface to avoid import cycle
+}
+
+// CompanionReactionMsg sets the companion speech bubble text.
+type CompanionReactionMsg struct {
+	Text string
+}
+
+// CompanionPetMsg triggers the pet heart animation.
+type CompanionPetMsg struct {
+	Timestamp int64 // Unix milliseconds
+}
+
+// CompanionMuteMsg sets the companion muted state.
+type CompanionMuteMsg struct {
+	Muted bool
+}
+
+// TeaserExpiredMsg signals the teaser notification should be hidden.
+type TeaserExpiredMsg struct{}
+
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 // Model is the top-level Bubbletea model for the agent TUI.

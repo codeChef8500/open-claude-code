@@ -51,9 +51,11 @@ func (c *ColorCommand) ExecuteInteractive(_ context.Context, _ []string, _ *Exec
 // Aligned with claude-code-main commands/copy/index.ts (local-jsx).
 type CopyCommand struct{ BaseCommand }
 
-func (c *CopyCommand) Name() string        { return "copy" }
-func (c *CopyCommand) Description() string { return "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)" }
-func (c *CopyCommand) Type() CommandType   { return CommandTypeInteractive }
+func (c *CopyCommand) Name() string { return "copy" }
+func (c *CopyCommand) Description() string {
+	return "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)"
+}
+func (c *CopyCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *CopyCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *CopyCommand) ExecuteInteractive(_ context.Context, args []string, _ *ExecContext) (*InteractiveResult, error) {
 	n := "1"
@@ -72,10 +74,12 @@ func (c *CopyCommand) ExecuteInteractive(_ context.Context, args []string, _ *Ex
 // Aligned with claude-code-main commands/export/index.ts (local-jsx).
 type ExportCommand struct{ BaseCommand }
 
-func (c *ExportCommand) Name() string         { return "export" }
-func (c *ExportCommand) Description() string  { return "Export the current conversation to a file or clipboard" }
-func (c *ExportCommand) ArgumentHint() string { return "[filename]" }
-func (c *ExportCommand) Type() CommandType    { return CommandTypeInteractive }
+func (c *ExportCommand) Name() string { return "export" }
+func (c *ExportCommand) Description() string {
+	return "Export the current conversation to a file or clipboard"
+}
+func (c *ExportCommand) ArgumentHint() string          { return "[filename]" }
+func (c *ExportCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *ExportCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *ExportCommand) ExecuteInteractive(_ context.Context, args []string, _ *ExecContext) (*InteractiveResult, error) {
 	filename := ""
@@ -161,11 +165,11 @@ func (c *RenameCommand) ExecuteInteractive(_ context.Context, args []string, _ *
 type StickersCommand struct{ BaseCommand }
 
 func (c *StickersCommand) Name() string                  { return "stickers" }
-func (c *StickersCommand) Description() string           { return "Order Claude Code stickers" }
+func (c *StickersCommand) Description() string           { return "Order openclaude-go stickers" }
 func (c *StickersCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *StickersCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *StickersCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (string, error) {
-	return "Visit https://store.anthropic.com to order Claude Code stickers!", nil
+	return "Visit https://store.anthropic.com to order openclaude-go stickers!", nil
 }
 
 func init() {

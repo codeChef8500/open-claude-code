@@ -119,18 +119,6 @@ func (c *SkillsCommand) ExecuteInteractive(_ context.Context, _ []string, _ *Exe
 	return &InteractiveResult{Component: "skills"}, nil
 }
 
-// ─── /hatch ───────────────────────────────────────────────────────────────────
-
-type HatchCommand struct{ BaseCommand }
-
-func (c *HatchCommand) Name() string                  { return "hatch" }
-func (c *HatchCommand) Description() string           { return "Hatch a new companion buddy" }
-func (c *HatchCommand) Type() CommandType             { return CommandTypeLocal }
-func (c *HatchCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *HatchCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (string, error) {
-	return "__hatch__", nil
-}
-
 // ─── /auto-mode ───────────────────────────────────────────────────────────────
 
 type AutoModeCommand struct{ BaseCommand }
@@ -174,7 +162,7 @@ func init() {
 		&PermissionsCommand{},
 		&PluginCommand{},
 		&SkillsCommand{},
-		&HatchCommand{},
+		&BuddyCommand{},
 		&AutoModeCommand{},
 	)
 }

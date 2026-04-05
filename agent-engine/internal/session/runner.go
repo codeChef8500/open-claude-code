@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/wall-ai/agent-engine/internal/analytics"
+	"github.com/wall-ai/agent-engine/internal/buddy"
 	"github.com/wall-ai/agent-engine/internal/command"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/prompt"
@@ -24,19 +28,37 @@ type Runner struct {
 	OnDone      func()
 	OnError     func(err error)
 	OnSystem    func(text string)
+
+	// Companion callbacks — called by handleBuddySignal to sync TUI state.
+	OnCompanionLoad     func(comp *buddy.Companion)
+	OnCompanionPet      func(tsMs int64)
+	OnCompanionMute     func(muted bool)
+	OnCompanionReaction func(text string)
+
+	// Observer fires companion reactions based on engine events.
+	observer *buddy.Observer
 }
 
 // NewRunner creates a runner from bootstrap results.
 func NewRunner(result *BootstrapResult) *Runner {
 	return &Runner{
-		result:      result,
-		OnTextDelta: func(string) {},
-		OnToolStart: func(string, string, string) {},
-		OnToolDone:  func(string, string, bool) {},
-		OnDone:      func() {},
-		OnError:     func(error) {},
-		OnSystem:    func(string) {},
+		result:              result,
+		OnTextDelta:         func(string) {},
+		OnToolStart:         func(string, string, string) {},
+		OnToolDone:          func(string, string, bool) {},
+		OnDone:              func() {},
+		OnError:             func(error) {},
+		OnSystem:            func(string) {},
+		OnCompanionLoad:     func(*buddy.Companion) {},
+		OnCompanionPet:      func(int64) {},
+		OnCompanionMute:     func(bool) {},
+		OnCompanionReaction: func(string) {},
 	}
+}
+
+// SetObserver attaches a buddy observer that fires companion reactions.
+func (r *Runner) SetObserver(obs *buddy.Observer) {
+	r.observer = obs
 }
 
 // HandleInput processes a single user input (message or slash command).
@@ -125,12 +147,132 @@ func (r *Runner) dispatchCommandResult(ctx context.Context, output string) bool 
 		r.OnDone()
 		return true
 
+	case command.IsBuddySignal(output):
+		r.handleBuddySignal(command.ParseBuddySignal(output))
+		return true
+
 	default:
 		if output != "" {
 			r.OnSystem(output)
 		}
 		r.OnDone()
 		return true
+	}
+}
+
+// BuddyConfigDir returns the config directory for buddy storage.
+func BuddyConfigDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude")
+}
+
+// handleBuddySignal processes buddy command signals.
+// It bridges between the signal-based /buddy command and the buddy package,
+// performing hatch, show card, pet, mute/unmute, and stats actions.
+func (r *Runner) handleBuddySignal(action string) {
+	configDir := BuddyConfigDir()
+	userID := buddy.GetOrCreateUserID(configDir)
+
+	switch action {
+	case "show":
+		// Load or hatch companion
+		comp := buddy.LoadCompanion(userID, configDir)
+		if comp == nil {
+			// Hatch a new companion (without LLM for now — fast path)
+			comp = buddy.HatchWithoutLLM(userID)
+			if comp != nil {
+				if err := buddy.SaveCompanion(comp, configDir); err != nil {
+					slog.Warn("buddy: failed to save companion", slog.String("error", err.Error()))
+				}
+			}
+		}
+		if comp == nil {
+			r.OnSystem("Could not hatch companion. Try again later.")
+			r.OnDone()
+			return
+		}
+		// Update TUI companion widget
+		r.OnCompanionLoad(comp)
+		// Create observer if not yet set (first hatch during session)
+		if r.observer == nil {
+			r.observer = buddy.NewObserver(comp, r.OnCompanionReaction)
+		} else {
+			r.observer.SetCompanion(comp)
+		}
+		// Render card
+		spriteLines := buddy.RenderSprite(comp.CompanionBones, 0)
+		stars := buddy.RarityStars[comp.Rarity]
+		card := command.BuddyCardText(
+			comp.Name,
+			string(comp.Species),
+			string(comp.Rarity),
+			stars,
+			comp.Personality,
+			comp.Shiny,
+			fmt.Sprintf("%d", comp.HatchedAt),
+			spriteLines,
+		)
+		r.OnSystem(card)
+		r.OnDone()
+
+	case "pet":
+		r.OnCompanionPet(time.Now().UnixMilli())
+		r.OnSystem("*You pet your companion* ♥")
+		r.OnDone()
+
+	case "mute":
+		if err := buddy.SetCompanionMuted(true, configDir); err != nil {
+			r.OnError(fmt.Errorf("buddy mute: %w", err))
+		} else {
+			r.OnCompanionMute(true)
+			r.OnSystem("Companion muted. Use /buddy unmute to bring them back.")
+		}
+		r.OnDone()
+
+	case "unmute":
+		if err := buddy.SetCompanionMuted(false, configDir); err != nil {
+			r.OnError(fmt.Errorf("buddy unmute: %w", err))
+		} else {
+			r.OnCompanionMute(false)
+			// Reload companion into TUI after unmute
+			comp := buddy.LoadCompanion(userID, configDir)
+			if comp != nil {
+				r.OnCompanionLoad(comp)
+			}
+			r.OnSystem("Companion unmuted!")
+		}
+		r.OnDone()
+
+	case "stats":
+		comp := buddy.LoadCompanion(userID, configDir)
+		if comp == nil {
+			r.OnSystem("No companion yet. Use /buddy to hatch one!")
+			r.OnDone()
+			return
+		}
+		stars := buddy.RarityStars[comp.Rarity]
+		statMap := make(map[string]int, len(comp.Stats))
+		statOrder := make([]string, 0, len(buddy.AllStatNames))
+		for _, sn := range buddy.AllStatNames {
+			statMap[string(sn)] = comp.Stats[sn]
+			statOrder = append(statOrder, string(sn))
+		}
+		card := command.BuddyStatsText(
+			comp.Name,
+			string(comp.Rarity),
+			stars,
+			string(comp.Eye),
+			string(comp.Hat),
+			comp.Shiny,
+			statMap,
+			statOrder,
+		)
+		r.OnSystem(card)
+		r.OnDone()
+
+	default:
+		r.OnSystem(fmt.Sprintf("Unknown buddy action: %s", action))
+		r.OnDone()
 	}
 }
 
@@ -220,6 +362,12 @@ func formatInteractiveResult(component string) string {
 func (r *Runner) handleMessage(ctx context.Context, text string) {
 	r.result.SessionTracker.RecordUserMessage()
 
+	// Fire observer: user message + turn start
+	if r.observer != nil {
+		r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventUserMessage, Detail: text})
+		r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventTurnStart})
+	}
+
 	// Process input (expand @file mentions, etc.).
 	pi := prompt.ProcessUserInput(text, r.result.Engine.WorkDir(), nil)
 
@@ -245,11 +393,17 @@ func (r *Runner) handleMessage(ctx context.Context, text string) {
 			}
 			r.OnToolStart(ev.ToolID, ev.ToolName, inputStr)
 			r.result.SessionTracker.RecordToolCall(ev.ToolName, false)
+			if r.observer != nil {
+				r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventToolStart, ToolName: ev.ToolName})
+			}
 
 		case engine.EventToolResult:
 			r.OnToolDone(ev.ToolID, ev.Text, ev.IsError)
 			if ev.IsError {
 				r.result.SessionTracker.RecordToolCall("", true)
+			}
+			if r.observer != nil {
+				r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventToolEnd, ToolName: ev.ToolID})
 			}
 
 		case engine.EventUsage:
@@ -273,10 +427,16 @@ func (r *Runner) handleMessage(ctx context.Context, text string) {
 
 		case engine.EventError:
 			r.OnError(fmt.Errorf("%s", ev.Error))
+			if r.observer != nil {
+				r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventError, Detail: ev.Error})
+			}
 
 		case engine.EventDone:
 			r.result.SessionTracker.RecordAssistantMessage()
 			r.result.SessionTracker.RecordTurn()
+			if r.observer != nil {
+				r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventTurnEnd})
+			}
 			r.OnDone()
 
 		case engine.EventSystemMessage:

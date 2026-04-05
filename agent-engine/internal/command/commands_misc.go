@@ -50,7 +50,7 @@ func (c *HooksCommand) ExecuteInteractive(_ context.Context, _ []string, _ *Exec
 type FeedbackCommand struct{ BaseCommand }
 
 func (c *FeedbackCommand) Name() string                  { return "feedback" }
-func (c *FeedbackCommand) Description() string           { return "Send feedback about Claude Code" }
+func (c *FeedbackCommand) Description() string           { return "Send feedback about openclaude-go" }
 func (c *FeedbackCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *FeedbackCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *FeedbackCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
@@ -77,11 +77,11 @@ func (c *StatsCommand) ExecuteInteractive(_ context.Context, _ []string, _ *Exec
 // Aligned with claude-code-main commands/advisor.ts (local).
 type AdvisorCommand struct{ BaseCommand }
 
-func (c *AdvisorCommand) Name() string         { return "advisor" }
-func (c *AdvisorCommand) Description() string  { return "Configure the advisor model" }
-func (c *AdvisorCommand) ArgumentHint() string { return "[<model>|off]" }
-func (c *AdvisorCommand) Type() CommandType    { return CommandTypeLocal }
-func (c *AdvisorCommand) IsHidden() bool       { return true } // hidden by default, shown when advisor is available
+func (c *AdvisorCommand) Name() string                  { return "advisor" }
+func (c *AdvisorCommand) Description() string           { return "Configure the advisor model" }
+func (c *AdvisorCommand) ArgumentHint() string          { return "[<model>|off]" }
+func (c *AdvisorCommand) Type() CommandType             { return CommandTypeLocal }
+func (c *AdvisorCommand) IsHidden() bool                { return true } // hidden by default, shown when advisor is available
 func (c *AdvisorCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *AdvisorCommand) Execute(_ context.Context, args []string, _ *ExecContext) (string, error) {
 	if len(args) == 0 {
@@ -100,11 +100,11 @@ func (c *AdvisorCommand) Execute(_ context.Context, args []string, _ *ExecContex
 // Aligned with claude-code-main commands/tag/index.ts (local-jsx, ant-only).
 type TagCommand struct{ BaseCommand }
 
-func (c *TagCommand) Name() string         { return "tag" }
-func (c *TagCommand) Description() string  { return "Toggle a searchable tag on the current session" }
-func (c *TagCommand) ArgumentHint() string { return "<tag-name>" }
-func (c *TagCommand) IsHidden() bool       { return true } // ant-only
-func (c *TagCommand) Type() CommandType    { return CommandTypeInteractive }
+func (c *TagCommand) Name() string                  { return "tag" }
+func (c *TagCommand) Description() string           { return "Toggle a searchable tag on the current session" }
+func (c *TagCommand) ArgumentHint() string          { return "<tag-name>" }
+func (c *TagCommand) IsHidden() bool                { return true } // ant-only
+func (c *TagCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *TagCommand) IsEnabled(_ *ExecContext) bool { return false } // ant-only, disabled by default
 func (c *TagCommand) ExecuteInteractive(_ context.Context, args []string, _ *ExecContext) (*InteractiveResult, error) {
 	tag := ""
@@ -165,14 +165,14 @@ func (c *PrivacySettingsCommand) ExecuteInteractive(_ context.Context, _ []strin
 
 // ─── /upgrade ────────────────────────────────────────────────────────────────
 
-// UpgradeCommand upgrades Claude Code to the latest version.
+// UpgradeCommand upgrades openclaude-go to the latest version.
 // Aligned with claude-code-main commands/upgrade/index.ts (local-jsx).
 type UpgradeCommand struct{ BaseCommand }
 
-func (c *UpgradeCommand) Name() string        { return "upgrade" }
-func (c *UpgradeCommand) Aliases() []string   { return []string{"update"} }
-func (c *UpgradeCommand) Description() string { return "Upgrade to the latest version" }
-func (c *UpgradeCommand) Type() CommandType   { return CommandTypeInteractive }
+func (c *UpgradeCommand) Name() string                  { return "upgrade" }
+func (c *UpgradeCommand) Aliases() []string             { return []string{"update"} }
+func (c *UpgradeCommand) Description() string           { return "Upgrade to the latest version" }
+func (c *UpgradeCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *UpgradeCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *UpgradeCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
 	return &InteractiveResult{Component: "upgrade"}, nil

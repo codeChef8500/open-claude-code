@@ -17,10 +17,10 @@ import (
 var Version = "dev"
 
 const banner = `
- ┌─────────────────────────────────┐
- │  Agent Engine  –  Wall AI       │
- │  Go rewrite of Claude Code core │
- └─────────────────────────────────┘
+ ┌────────────────────────────────────┐
+ │  openclaude-go  –  AI Agent Engine  │
+ │  Wall AI                            │
+ └────────────────────────────────────┘
 `
 
 // cliOpts holds all parsed CLI flags.
@@ -36,15 +36,15 @@ type cliOpts struct {
 	BaseURL  string
 
 	// Behaviour
-	PermissionMode    string
-	OutputFormat      string
-	SystemPrompt      string
+	PermissionMode     string
+	OutputFormat       string
+	SystemPrompt       string
 	AppendSystemPrompt string
-	AllowedTools      []string
-	DisallowedTools   []string
-	MCPConfig         []string
-	MaxTurns          int
-	MaxCostUSD        float64
+	AllowedTools       []string
+	DisallowedTools    []string
+	MCPConfig          []string
+	MaxTurns           int
+	MaxCostUSD         float64
 
 	// Session
 	Continue  bool
@@ -60,11 +60,11 @@ var opts cliOpts
 
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "agent-engine [prompt]",
-		Short: "Agent Engine – AI coding assistant",
-		Long:  "A Go implementation of an AI-powered coding assistant with interactive CLI.",
-		Args:  cobra.ArbitraryArgs,
-		RunE:  runRoot,
+		Use:           "agent-engine [prompt]",
+		Short:         "Agent Engine – AI coding assistant",
+		Long:          "A Go implementation of an AI-powered coding assistant with interactive CLI.",
+		Args:          cobra.ArbitraryArgs,
+		RunE:          runRoot,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -103,6 +103,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newServeCmd())
 	rootCmd.AddCommand(newDoctorCmd())
+	rootCmd.AddCommand(newDaemonCmd())
 
 	return rootCmd
 }

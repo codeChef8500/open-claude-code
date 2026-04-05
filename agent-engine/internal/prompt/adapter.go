@@ -38,6 +38,10 @@ func (a *Adapter) BuildParts(opts engine.SystemPromptOptions) engine.SystemPromp
 		MemoryContent:      opts.MemoryContent,
 		CustomSystemPrompt: opts.CustomSystemPrompt,
 		AppendSystemPrompt: opts.AppendSystemPrompt,
+		KairosActive:       opts.KairosActive,
+		BuddyActive:        opts.BuddyActive,
+		CompanionName:      opts.CompanionName,
+		CompanionSpecies:   opts.CompanionSpecies,
 	})
 
 	// Map prompt parts to engine.SystemPromptPart slices.

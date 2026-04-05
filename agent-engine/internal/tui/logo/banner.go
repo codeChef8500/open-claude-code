@@ -19,13 +19,12 @@ type BannerData struct {
 }
 
 // RenderCondensedBanner renders the compact startup banner wrapped in a
-// rounded border with the Claude theme color, matching claude-code-main's
-// CondensedLogo component:
+// rounded border with the theme color:
 //
 //	╭──────────────────────────────────────╮
-//	│ [Clawd]  Claude Code v1.0.0         │
-//	│          sonnet-4 · API              │
-//	│          /path/to/cwd                │
+//	│ [Lobster]  openclaude-go v1.0.0     │
+//	│            sonnet-4 · API            │
+//	│            /path/to/cwd              │
 //	╰──────────────────────────────────────╯
 func RenderCondensedBanner(data BannerData, theme themes.Theme, width int) string {
 	content := renderBannerContent(data, theme, width)
@@ -39,10 +38,10 @@ func RenderCondensedBanner(data BannerData, theme themes.Theme, width int) strin
 	return borderBox.Render(content)
 }
 
-// renderBannerContent builds the inner content of the banner (Clawd + info).
+// renderBannerContent builds the inner content of the banner (Lobster + info).
 func renderBannerContent(data BannerData, theme themes.Theme, width int) string {
-	clawd := RenderClawd(PoseDefault, theme)
-	clawdLines := strings.Split(clawd, "\n")
+	lobster := RenderLobster(PoseDefault, theme)
+	lobsterLines := strings.Split(lobster, "\n")
 
 	c := func(s string) lipgloss.Color { return color.Resolve(s) }
 	titleStyle := lipgloss.NewStyle().Foreground(c(theme.Claude)).Bold(true)
@@ -53,7 +52,7 @@ func renderBannerContent(data BannerData, theme themes.Theme, width int) string 
 	var infoLines []string
 
 	// Line 1: title + version
-	title := titleStyle.Render("Claude Code")
+	title := titleStyle.Render("openclaude-go")
 	if data.Version != "" {
 		title += dimStyle.Render(" v" + data.Version)
 	}
@@ -82,22 +81,22 @@ func renderBannerContent(data BannerData, theme themes.Theme, width int) string 
 		infoLines = append(infoLines, subtleStyle.Render(cwdLine))
 	}
 
-	// Compose: clawd lines on the left, info lines on the right
+	// Compose: lobster lines on the left, info lines on the right
 	gap := "  " // 2 spaces between mascot and info
 	var result []string
-	maxLines := len(clawdLines)
+	maxLines := len(lobsterLines)
 	if len(infoLines) > maxLines {
 		maxLines = len(infoLines)
 	}
 
-	clawdWidth := 10 // approximate width of clawd mascot
+	lobsterWidth := LobsterWidth // width of lobster mascot
 	for i := 0; i < maxLines; i++ {
 		left := ""
-		if i < len(clawdLines) {
-			left = clawdLines[i]
+		if i < len(lobsterLines) {
+			left = lobsterLines[i]
 		}
 		// Pad left to uniform width
-		leftPad := clawdWidth - lipgloss.Width(left)
+		leftPad := lobsterWidth - lipgloss.Width(left)
 		if leftPad < 0 {
 			leftPad = 0
 		}
@@ -120,7 +119,7 @@ func RenderFullBanner(data BannerData, theme themes.Theme, width int) string {
 
 	// Welcome line
 	welcomeStyle := lipgloss.NewStyle().Foreground(c(theme.Text)).Bold(true)
-	welcome := welcomeStyle.Render("Welcome to Claude Code!")
+	welcome := welcomeStyle.Render("Welcome to openclaude-go!")
 
 	content := renderBannerContent(data, theme, width)
 

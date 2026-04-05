@@ -39,6 +39,10 @@ type SystemPromptOptions struct {
 	MemoryContent      string
 	CustomSystemPrompt string
 	AppendSystemPrompt string
+	KairosActive       bool   // inject KAIROS daemon mode instructions
+	BuddyActive        bool   // inject companion intro into system prompt
+	CompanionName      string // companion name (for intro text)
+	CompanionSpecies   string // companion species (for intro text)
 }
 
 // PermissionVerdict is the outcome of a global permission check.

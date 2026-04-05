@@ -10,7 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/wall-ai/agent-engine/internal/buddy"
 	"github.com/wall-ai/agent-engine/internal/tui/color"
+	"github.com/wall-ai/agent-engine/internal/tui/companion"
 	"github.com/wall-ai/agent-engine/internal/tui/designsystem"
 	"github.com/wall-ai/agent-engine/internal/tui/figures"
 	"github.com/wall-ai/agent-engine/internal/tui/logo"
@@ -53,11 +55,12 @@ type App struct {
 	screenMode ScreenMode
 
 	// Advanced sub-models
-	vimState   *vim.VimState
-	searchBar  *search.Overlay
-	toolTrack  *ToolUseTracker
-	transcript *sess.TranscriptView
-	sessStore  *sess.SessionStore
+	vimState      *vim.VimState
+	searchBar     *search.Overlay
+	toolTrack     *ToolUseTracker
+	transcript    *sess.TranscriptView
+	sessStore     *sess.SessionStore
+	companionView companion.Model
 
 	// Status line data
 	model        string
@@ -77,6 +80,9 @@ type App struct {
 	// Autocomplete
 	completer *Completer
 	compState CompletionState
+
+	// Footer navigation (P7)
+	footerFocused bool // true when arrow-down enters footer mode
 
 	// SubmitFn is called when the user sends a message.
 	SubmitFn func(text string)
@@ -155,29 +161,30 @@ func NewApp(cfg AppConfig) (*App, error) {
 	}
 
 	return &App{
-		screen:     NewScreenManager(),
-		layout:     NewLayout(80, 24),
-		viewport:   vp,
-		textarea:   ta,
-		spinner:    NewSpinnerWithTheme(themeData),
-		permission: NewPermissionModelWithTheme(styles, themeData, km),
-		md:         mdRenderer,
-		vimState:   vim.New(),
-		searchBar:  search.NewOverlay(80),
-		toolTrack:  NewToolUseTracker(styles),
-		transcript: sess.NewTranscriptView(80, 20),
-		sessStore:  sess.NewSessionStore(""),
-		messages:   initialMessages,
-		status:     "Ready",
-		themeData:  themeData,
-		styles:     styles,
-		keymap:     km,
-		screenMode: ScreenPrompt,
-		model:      cfg.Model,
-		permMode:   cfg.PermissionMode,
-		cwd:        cfg.WorkDir,
-		completer:  NewCompleter(DefaultSlashCommands(), nil),
-		SubmitFn:   cfg.SubmitFn,
+		screen:        NewScreenManager(),
+		layout:        NewLayout(80, 24),
+		viewport:      vp,
+		textarea:      ta,
+		spinner:       NewSpinnerWithTheme(themeData),
+		permission:    NewPermissionModelWithTheme(styles, themeData, km),
+		md:            mdRenderer,
+		vimState:      vim.New(),
+		searchBar:     search.NewOverlay(80),
+		toolTrack:     NewToolUseTracker(styles),
+		transcript:    sess.NewTranscriptView(80, 20),
+		sessStore:     sess.NewSessionStore(""),
+		messages:      initialMessages,
+		status:        "Ready",
+		themeData:     themeData,
+		styles:        styles,
+		keymap:        km,
+		screenMode:    ScreenPrompt,
+		model:         cfg.Model,
+		permMode:      cfg.PermissionMode,
+		cwd:           cfg.WorkDir,
+		completer:     NewCompleter(DefaultSlashCommands(), nil),
+		companionView: companion.New(),
+		SubmitFn:      cfg.SubmitFn,
 	}, nil
 }
 
@@ -188,6 +195,7 @@ func (a *App) Init() tea.Cmd {
 		tea.EnterAltScreen,
 		textarea.Blink,
 		a.spinner.Init(),
+		a.companionView.Init(),
 	)
 }
 
@@ -338,6 +346,47 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Type == tea.KeyCtrlF:
 			a.searchBar.Show()
 			return a, nil
+
+		case msg.Type == tea.KeyPgUp || msg.Type == tea.KeyPgDown:
+			// P6: Dismiss companion speech bubble on scroll (matches claude-code-main REPL.tsx)
+			a.companionView.SetReaction("")
+
+		case msg.Type == tea.KeyDown && !a.compState.Active:
+			// P7: Arrow-down from empty input or end of input → enter footer mode
+			if a.companionView.IsVisible() && !a.footerFocused {
+				val := a.textarea.Value()
+				if val == "" || !strings.Contains(val, "\n") {
+					a.footerFocused = true
+					a.companionView.SetFocused(true)
+					a.textarea.Blur()
+					return a, nil
+				}
+			}
+
+		case msg.Type == tea.KeyUp && a.footerFocused:
+			// P7: Arrow-up exits footer mode
+			a.footerFocused = false
+			a.companionView.SetFocused(false)
+			a.textarea.Focus()
+			return a, nil
+
+		case msg.Type == tea.KeyEnter && a.footerFocused:
+			// P7: Enter on companion pill → submit /buddy
+			a.footerFocused = false
+			a.companionView.SetFocused(false)
+			a.textarea.Focus()
+			a.messages = append(a.messages, ChatMessage{Role: "user", Content: "/buddy"})
+			a.textarea.Reset()
+			a.status = "Thinking…"
+			a.isLoading = true
+			a.loadingStart = time.Now()
+			a.spinner.ShowRandom()
+			a.refreshViewport()
+			a.viewport.GotoBottom()
+			if a.SubmitFn != nil {
+				a.SubmitFn("/buddy")
+			}
+			return a, a.spinner.Init()
 		}
 
 	case tea.WindowSizeMsg:
@@ -431,12 +480,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.costUSD = msg.CostUSD
 		a.inputTokens = msg.InputTokens
 		a.turnCount = msg.TurnCount
+
+	// ── Companion events ──────────────────────────────────────────────────
+	case CompanionLoadMsg:
+		if c, ok := msg.Companion.(*buddy.Companion); ok && c != nil {
+			a.companionView.SetCompanion(c)
+		}
+
+	case CompanionReactionMsg:
+		a.companionView.SetReaction(msg.Text)
+
+	case CompanionPetMsg:
+		a.companionView.SetPetAt(msg.Timestamp)
+
+	case CompanionMuteMsg:
+		a.companionView.SetMuted(msg.Muted)
 	}
 
 	a.textarea, taCmd = a.textarea.Update(msg)
 	a.viewport, vpCmd = a.viewport.Update(msg)
 	a.spinner, spCmd = a.spinner.Update(msg)
-	cmds = append(cmds, taCmd, vpCmd, spCmd)
+	var compCmd tea.Cmd
+	a.companionView, compCmd = a.companionView.Update(msg)
+	cmds = append(cmds, taCmd, vpCmd, spCmd, compCmd)
 
 	// ── Auto-trigger slash command completion ─────────────────────────
 	val := a.textarea.Value()
@@ -488,6 +554,28 @@ func (a *App) SetModel(model string) {
 	}
 }
 
+// ── Companion public API ─────────────────────────────────────────────────────
+
+// SetCompanion updates the companion data for the sprite widget.
+func (a *App) SetCompanion(c *buddy.Companion) {
+	a.companionView.SetCompanion(c)
+}
+
+// SetCompanionReaction sets the companion's speech bubble text.
+func (a *App) SetCompanionReaction(text string) {
+	a.companionView.SetReaction(text)
+}
+
+// SetCompanionPetAt triggers the petting heart animation.
+func (a *App) SetCompanionPetAt(ts int64) {
+	a.companionView.SetPetAt(ts)
+}
+
+// SetCompanionMuted sets the companion muted state.
+func (a *App) SetCompanionMuted(muted bool) {
+	a.companionView.SetMuted(muted)
+}
+
 // ── View ──────────────────────────────────────────────────────────────────────
 
 func (a *App) View() string {
@@ -505,6 +593,13 @@ func (a *App) View() string {
 	}
 
 	input := a.renderInput()
+
+	// P10: Render floating bubble above input in fullscreen mode
+	floatingBubble := a.companionView.FloatingBubbleView()
+	if floatingBubble != "" {
+		input = floatingBubble + "\n" + input
+	}
+
 	footer := a.renderFooter()
 
 	// Dynamically expand input region when autocomplete popup is visible,
@@ -605,7 +700,29 @@ func formatStatusCost(usd float64) string {
 
 func (a *App) renderInput() string {
 	w := a.layout.BodyWidth()
+
+	// P14: Hide companion when permission dialog or help overlay is showing
+	// (matches claude-code-main: companionVisible = !toolJSX?.shouldHidePromptInput && !focusedInputDialog)
+	companionVisible := a.companionView.IsVisible() && !a.permission.IsVisible() && !a.showHelp
+
+	// Calculate input width, reserving space for companion sprite if visible.
+	inputW := w
+	speaking := companionVisible && a.companionView.IsSpeaking()
+	reserved := companion.CompanionReservedColumns(w, speaking, a.companionView.NameWidth(), a.companionView.IsFullscreen())
+	if companionVisible && reserved > 0 {
+		inputW = w - reserved
+		if inputW < 40 {
+			inputW = w // fall back to full width if too narrow
+			reserved = 0
+		}
+	}
+
 	inputView := a.textarea.View()
+
+	// P8: Rainbow highlight /buddy in input text (matches claude-code-main PromptInput.tsx getRainbowColor)
+	if strings.Contains(a.textarea.Value(), "/buddy") {
+		inputView = rainbowBuddyReplace(inputView)
+	}
 
 	// Wrap in rounded border without bottom (claude-code-main PromptInput style):
 	//   ╭─────────────────╮
@@ -615,14 +732,22 @@ func (a *App) renderInput() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(color.Resolve(a.themeData.PromptBorder)).
 		BorderBottom(false).
-		Width(w - 2) // content width; rendered = w (incl side borders)
+		Width(inputW - 2) // content width; rendered = inputW (incl side borders)
 
 	bordered := borderStyle.Render(inputView)
 
 	// Show autocomplete popup above the input when active.
 	if a.compState.Active && len(a.compState.Items) > 0 {
-		popup := a.renderCompletionPopup(w)
-		return lipgloss.JoinVertical(lipgloss.Left, popup, bordered)
+		popup := a.renderCompletionPopup(inputW)
+		bordered = lipgloss.JoinVertical(lipgloss.Left, popup, bordered)
+	}
+
+	// Join companion sprite to the right of the input if visible and space allows.
+	if companionVisible && reserved > 0 {
+		spriteView := a.companionView.View()
+		if spriteView != "" {
+			bordered = lipgloss.JoinHorizontal(lipgloss.Bottom, bordered, "  ", spriteView)
+		}
 	}
 
 	return bordered
@@ -678,6 +803,23 @@ func (a *App) renderFooter() string {
 	hint := "  ! for bash · /help · esc to interrupt"
 	if a.spinner.IsVisible() {
 		hint = ""
+	}
+
+	// P9: Teaser notification — show rainbow "/buddy" in footer during teaser window
+	hasCompanion := a.companionView.IsVisible()
+	teaserParts := buddy.TeaserRainbowParts(hasCompanion)
+	if len(teaserParts) > 0 {
+		var rb strings.Builder
+		for _, cp := range teaserParts {
+			s := lipgloss.NewStyle().Foreground(lipgloss.Color(cp.Color)).Bold(true)
+			rb.WriteString(s.Render(string(cp.Char)))
+		}
+		teaserStr := "  Try " + rb.String() + " ✨"
+		if hint != "" {
+			hint = hint + " · " + teaserStr
+		} else {
+			hint = teaserStr
+		}
 	}
 
 	_ = w
@@ -889,6 +1031,21 @@ func (a *App) handleVimAction(action vim.Action) {
 			// placeholder for session save
 		}
 	}
+}
+
+// rainbowBuddyReplace replaces literal "/buddy" in rendered text with rainbow-colored version.
+// Matches claude-code-main PromptInput.tsx getRainbowColor per-character styling.
+func rainbowBuddyReplace(view string) string {
+	const trigger = "/buddy"
+	rainbowColors := []string{
+		"#ff0000", "#ff8800", "#ffff00", "#00ff00", "#0088ff", "#8800ff", "#ff00ff",
+	}
+	var rainbow strings.Builder
+	for i, ch := range trigger {
+		s := lipgloss.NewStyle().Foreground(lipgloss.Color(rainbowColors[i%len(rainbowColors)])).Bold(true)
+		rainbow.WriteString(s.Render(string(ch)))
+	}
+	return strings.ReplaceAll(view, trigger, rainbow.String())
 }
 
 // shortenPath truncates a path for display.

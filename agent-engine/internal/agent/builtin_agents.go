@@ -64,11 +64,11 @@ var ForkAgent = AgentDefinition{
 	PermissionMode: "bubble",
 }
 
-// ClaudeCodeGuideAgent provides guidance about Claude Code usage.
+// ClaudeCodeGuideAgent provides guidance about openclaude-go usage.
 var ClaudeCodeGuideAgent = AgentDefinition{
 	AgentType:    "claude-code-guide",
 	Source:       SourceBuiltIn,
-	WhenToUse:    "Answer questions about how to use Claude Code, its features, and best practices.",
+	WhenToUse:    "Answer questions about how to use openclaude-go, its features, and best practices.",
 	OmitClaudeMd: true,
 	AllowedTools: []string{
 		"Read", "Grep", "Glob",

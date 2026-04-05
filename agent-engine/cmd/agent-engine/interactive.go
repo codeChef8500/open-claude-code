@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/wall-ai/agent-engine/internal/buddy"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/session"
 	"github.com/wall-ai/agent-engine/internal/tui"
@@ -45,6 +46,29 @@ func runInteractiveMode(ctx context.Context, appCfg *util.AppConfig, wd string) 
 	}
 
 	program = tea.NewProgram(app, tea.WithAltScreen())
+
+	// P3+P5: Auto-load companion on startup; auto-hatch if none exists
+	configDir := session.BuddyConfigDir()
+	userID := buddy.GetOrCreateUserID(configDir)
+	comp := buddy.LoadCompanion(userID, configDir)
+	if comp == nil {
+		// Auto-hatch on first launch (no manual /buddy required)
+		comp = buddy.HatchWithoutLLM(userID)
+		if comp != nil {
+			_ = buddy.SaveCompanion(comp, configDir)
+		}
+	}
+	if comp != nil {
+		app.SetCompanion(comp)
+		app.SetCompanionMuted(buddy.IsCompanionMuted(configDir))
+
+		// P1: Create observer for companion reactions → TUI
+		obs := buddy.NewObserver(comp, func(text string) {
+			program.Send(tui.CompanionReactionMsg{Text: text})
+		})
+		runner.SetObserver(obs)
+	}
+
 	if _, err := program.Run(); err != nil {
 		return fmt.Errorf("TUI: %w", err)
 	}
@@ -76,6 +100,20 @@ func handleInteractiveInput(ctx context.Context, runner *session.Runner, p *tea.
 	}
 	runner.OnSystem = func(t string) {
 		p.Send(tui.SystemMsg{Text: t})
+	}
+
+	// Companion callbacks → TUI state sync
+	runner.OnCompanionLoad = func(comp *buddy.Companion) {
+		p.Send(tui.CompanionLoadMsg{Companion: comp})
+	}
+	runner.OnCompanionPet = func(tsMs int64) {
+		p.Send(tui.CompanionPetMsg{Timestamp: tsMs})
+	}
+	runner.OnCompanionMute = func(muted bool) {
+		p.Send(tui.CompanionMuteMsg{Muted: muted})
+	}
+	runner.OnCompanionReaction = func(text string) {
+		p.Send(tui.CompanionReactionMsg{Text: text})
 	}
 
 	if !runner.HandleInput(ctx, text) {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wall-ai/agent-engine/internal/engine"
+	"github.com/wall-ai/agent-engine/internal/state"
 	"github.com/wall-ai/agent-engine/internal/tool"
 )
 
@@ -40,10 +41,16 @@ func (t *SleepTool) InputSchema() json.RawMessage {
 }
 
 func (t *SleepTool) Prompt(_ *tool.UseContext) string {
-	return `Sleep for the specified number of milliseconds. Use this tool when you need to wait before checking the result of a background operation. Maximum sleep duration is 60 seconds (60000ms).`
+	return `Sleep for the specified number of milliseconds. Use this tool instead of Bash(sleep ...) when you need to wait.
+
+In assistant daemon mode, the system sends <tick> prompts periodically. Prefer
+Sleep over idle loops — sleeping keeps the prompt cache alive (caches expire
+after ~5 minutes of inactivity). For daemon workers, longer sleeps are allowed.
+
+Maximum sleep duration: 300000ms (5 min) in daemon mode, 60000ms (1 min) otherwise.`
 }
 
-func (t *SleepTool) CheckPermissions(_ context.Context, input json.RawMessage, _ *tool.UseContext) error {
+func (t *SleepTool) CheckPermissions(_ context.Context, input json.RawMessage, uctx *tool.UseContext) error {
 	var in Input
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Errorf("invalid input: %w", err)
@@ -51,8 +58,17 @@ func (t *SleepTool) CheckPermissions(_ context.Context, input json.RawMessage, _
 	if in.Milliseconds < 0 {
 		return fmt.Errorf("milliseconds must be non-negative")
 	}
-	if in.Milliseconds > 60_000 {
-		return fmt.Errorf("sleep duration exceeds maximum (60000ms)")
+	// Daemon workers allow longer sleep (5 min); interactive caps at 60s
+	maxMs := 60_000
+	if uctx != nil && uctx.GetAppState != nil {
+		if v := uctx.GetAppState(); v != nil {
+			if as, ok := v.(*state.AppState); ok && state.IsDaemonSession(as.SessionKind) {
+				maxMs = 300_000
+			}
+		}
+	}
+	if in.Milliseconds > maxMs {
+		return fmt.Errorf("sleep duration exceeds maximum (%dms)", maxMs)
 	}
 	return nil
 }

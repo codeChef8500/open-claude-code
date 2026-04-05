@@ -121,15 +121,18 @@ func DefaultSlashCommands() []CompletionItem {
 		{"/doctor", "Diagnose and verify installation"},
 		{"/skills", "List available skills"},
 		{"/plugin", "Manage plugins"},
-		{"/feedback", "Send feedback about Claude Code"},
+		{"/feedback", "Send feedback about openclaude-go"},
 		{"/stats", "Show session statistics"},
 		{"/upgrade", "Upgrade to the latest version"},
 		{"/add-dir", "Add a new working directory"},
 
 		// UI
 		{"/keybindings", "Show or configure keyboard shortcuts"},
-		{"/stickers", "Order Claude Code stickers"},
+		{"/stickers", "Order openclaude-go stickers"},
 		{"/release-notes", "Show release notes"},
+
+		// Companion
+		{"/buddy", "Interact with your companion buddy"},
 	}
 
 	items := make([]CompletionItem, 0, len(cmds))
