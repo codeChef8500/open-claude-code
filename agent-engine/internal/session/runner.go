@@ -75,6 +75,7 @@ func (r *Runner) HandleInput(ctx context.Context, input string) bool {
 
 	// Check for slash commands.
 	if strings.HasPrefix(input, "/") {
+		slog.Debug("HandleInput: detected slash command", slog.String("input", input))
 		return r.handleCommand(ctx, input)
 	}
 
@@ -100,10 +101,13 @@ func (r *Runner) handleCommand(ctx context.Context, input string) bool {
 
 	output, err := r.result.CmdExecutor.Execute(ctx, input, ectx)
 	if err != nil {
+		slog.Debug("handleCommand: executor error", slog.String("cmd", cmdName), slog.String("error", err.Error()))
 		r.OnError(fmt.Errorf("command error: %w", err))
 		r.OnDone()
 		return true
 	}
+
+	slog.Debug("handleCommand: executor success", slog.String("cmd", cmdName), slog.String("output_prefix", truncateForLog(output, 80)))
 
 	r.result.SessionTracker.RecordCommand()
 	analytics.LogEvent("command_executed", analytics.EventMetadata{
@@ -122,13 +126,20 @@ func (r *Runner) dispatchCommandResult(ctx context.Context, output string) bool 
 		r.OnDone()
 		return false
 
-	case output == "__clear_history__":
+	case output == "__clear_history__" || strings.HasPrefix(output, "__clear_history__\n"):
 		r.OnClearHistory()
+		// Show any extra info after the signal (e.g. "Messages cleared\n...").
+		if rest := strings.TrimPrefix(output, "__clear_history__"); rest != "" {
+			r.OnSystem(strings.TrimPrefix(rest, "\n"))
+		}
 		r.OnDone()
 		return true
 
-	case output == "__compact__":
+	case output == "__compact__" || strings.HasPrefix(output, "__compact__\n"):
 		r.OnCompact()
+		if rest := strings.TrimPrefix(output, "__compact__"); rest != "" {
+			r.OnSystem(strings.TrimPrefix(rest, "\n"))
+		}
 		r.OnDone()
 		return true
 
@@ -169,6 +180,14 @@ func (r *Runner) dispatchCommandResult(ctx context.Context, output string) bool 
 		r.OnDone()
 		return true
 	}
+}
+
+// truncateForLog returns at most maxLen characters of s for logging.
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "…"
 }
 
 // BuddyConfigDir returns the config directory for buddy storage.

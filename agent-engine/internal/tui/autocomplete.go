@@ -75,6 +75,7 @@ func DefaultSlashCommands() []CompletionItem {
 		{"/cost", "Show token usage and cost"},
 		{"/model", "Switch or show current model"},
 		{"/status", "Show session status"},
+		{"/version", "Show version information"},
 		{"/quit", "Exit the current session"},
 
 		// Config & settings
@@ -84,8 +85,12 @@ func DefaultSlashCommands() []CompletionItem {
 		{"/hooks", "View hook configurations for tool events"},
 		{"/memory", "Edit Claude memory files"},
 		{"/theme", "Change the theme"},
+		{"/color", "Change color scheme"},
 		{"/vim", "Toggle vim keybinding mode"},
 		{"/verbose", "Toggle verbose output"},
+		{"/privacy-settings", "View or change privacy settings"},
+		{"/sandbox-toggle", "Toggle sandbox mode"},
+		{"/terminal-setup", "Configure terminal integration"},
 
 		// Session & conversation
 		{"/plan", "Toggle plan mode or view session plan"},
@@ -104,12 +109,14 @@ func DefaultSlashCommands() []CompletionItem {
 		{"/diff", "Show uncommitted changes and per-turn diffs"},
 		{"/commit", "Create a git commit with generated message"},
 		{"/review", "Review recent changes"},
+		{"/security-review", "Run a security-focused review"},
 		{"/pr-comments", "Address PR review comments"},
 		{"/init", "Initialize project configuration"},
 
 		// Agents & tasks
 		{"/agents", "Manage agent configurations"},
 		{"/tasks", "List and manage background tasks"},
+		{"/workflow", "Manage and run workflows"},
 
 		// Account & auth
 		{"/login", "Sign in with your Anthropic account"},
@@ -117,7 +124,7 @@ func DefaultSlashCommands() []CompletionItem {
 		{"/usage", "Show plan usage limits"},
 
 		// System
-		{"/bug", "Report a bug"},
+		{"/bug-report", "Report a bug with diagnostic info"},
 		{"/doctor", "Diagnose and verify installation"},
 		{"/skills", "List available skills"},
 		{"/plugin", "Manage plugins"},
@@ -125,6 +132,8 @@ func DefaultSlashCommands() []CompletionItem {
 		{"/stats", "Show session statistics"},
 		{"/upgrade", "Upgrade to the latest version"},
 		{"/add-dir", "Add a new working directory"},
+		{"/desktop", "Desktop app integration info"},
+		{"/mobile", "Mobile app integration info"},
 
 		// UI
 		{"/keybindings", "Show or configure keyboard shortcuts"},

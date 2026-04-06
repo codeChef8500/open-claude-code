@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/wall-ai/agent-engine/internal/buddy"
@@ -37,6 +38,18 @@ func runInteractiveMode(ctx context.Context, appCfg *util.AppConfig, wd string) 
 		SubmitFn: func(text string) {
 			// Run engine interaction in a goroutine so the TUI stays responsive.
 			go func() {
+				// BUG-1 fix: recover from panics so the TUI doesn't crash.
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("panic in command handler", slog.Any("error", r))
+						if program != nil {
+							program.Send(tui.StreamErrorMsg{
+								Err: fmt.Errorf("internal error: %v", r),
+							})
+							program.Send(tui.StreamDoneMsg{})
+						}
+					}
+				}()
 				handleInteractiveInput(ctx, runner, program, text)
 			}()
 		},
@@ -46,6 +59,9 @@ func runInteractiveMode(ctx context.Context, appCfg *util.AppConfig, wd string) 
 	}
 
 	program = tea.NewProgram(app, tea.WithAltScreen())
+
+	// BUG-7 fix: wire callbacks once to avoid per-submission data race.
+	wireRunnerCallbacks(runner, program)
 
 	// P3+P5: Auto-load companion on startup; auto-hatch if none exists
 	configDir := session.BuddyConfigDir()
@@ -75,14 +91,10 @@ func runInteractiveMode(ctx context.Context, appCfg *util.AppConfig, wd string) 
 	return nil
 }
 
-// handleInteractiveInput processes a user message through the engine runner
-// and forwards streaming events back to the TUI via tea.Program.Send.
-func handleInteractiveInput(ctx context.Context, runner *session.Runner, p *tea.Program, text string) {
-	if p == nil {
-		return
-	}
-
-	// Wire callbacks to send Bubbletea messages.
+// wireRunnerCallbacks sets up all runner → TUI callbacks once.
+// BUG-7 fix: wire callbacks once at setup time instead of per-submission
+// to eliminate the data race on runner callback fields.
+func wireRunnerCallbacks(runner *session.Runner, p *tea.Program) {
 	runner.OnTextDelta = func(t string) {
 		p.Send(tui.StreamTextMsg{Text: t})
 	}
@@ -120,6 +132,14 @@ func handleInteractiveInput(ctx context.Context, runner *session.Runner, p *tea.
 	}
 	runner.OnCompanionReaction = func(text string) {
 		p.Send(tui.CompanionReactionMsg{Text: text})
+	}
+}
+
+// handleInteractiveInput processes a user message through the engine runner
+// and forwards streaming events back to the TUI via tea.Program.Send.
+func handleInteractiveInput(ctx context.Context, runner *session.Runner, p *tea.Program, text string) {
+	if p == nil {
+		return
 	}
 
 	if !runner.HandleInput(ctx, text) {

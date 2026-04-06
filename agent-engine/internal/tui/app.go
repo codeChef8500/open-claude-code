@@ -261,6 +261,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return a, a.spinner.Init()
 					}
 				}
+				// BUG-2 fix: fall through to submit the raw textarea value
+				// instead of silently swallowing the Enter keypress.
+				text := strings.TrimSpace(a.textarea.Value())
+				if text != "" {
+					a.messages = append(a.messages, ChatMessage{Role: "user", Content: text})
+					a.textarea.Reset()
+					a.status = "Thinking\u2026"
+					a.isLoading = true
+					a.loadingStart = time.Now()
+					a.spinner.ShowRandom()
+					a.refreshViewport()
+					a.viewport.GotoBottom()
+					if a.SubmitFn != nil {
+						a.SubmitFn(text)
+					}
+					return a, a.spinner.Init()
+				}
 				return a, nil
 			}
 		}
