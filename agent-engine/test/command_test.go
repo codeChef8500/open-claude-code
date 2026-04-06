@@ -42,5 +42,6 @@ func TestCommandModel(t *testing.T) {
 	ectx := &command.ExecContext{SessionID: "sess-1"}
 	result, err := command.Execute(context.Background(), "model", []string{"claude-opus-4-5"}, ectx)
 	require.NoError(t, err)
-	assert.Contains(t, result, "claude-opus-4-5")
+	// /model is now interactive — returns __interactive__:model with JSON data
+	assert.Contains(t, result, "__interactive__:model")
 }

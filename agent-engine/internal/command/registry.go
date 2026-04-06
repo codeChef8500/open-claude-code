@@ -54,6 +54,23 @@ func (r *Registry) Register(cmds ...Command) {
 	r.version++
 }
 
+// RegisterSafe adds a command, returning an error instead of panicking if
+// a command with the same name already exists.
+func (r *Registry) RegisterSafe(cmd Command) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	name := strings.ToLower(cmd.Name())
+	if _, exists := r.commands[name]; exists {
+		return fmt.Errorf("command %q already registered", name)
+	}
+	r.commands[name] = cmd
+	for _, alias := range cmd.Aliases() {
+		r.aliases[strings.ToLower(alias)] = name
+	}
+	r.version++
+	return nil
+}
+
 // RegisterOrReplace adds a command, replacing any existing command with the
 // same name. Used by dynamic loaders to update commands at runtime.
 func (r *Registry) RegisterOrReplace(cmds ...Command) {

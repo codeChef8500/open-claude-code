@@ -51,6 +51,51 @@ const (
 	FlagSkillDiscovery FeatureFlag = "skill_discovery"
 	// FlagMultiLineInput enables multi-line input in TUI.
 	FlagMultiLineInput FeatureFlag = "multi_line_input"
+
+	// ── Command-gating flags (aligned with claude-code-main feature()) ──
+
+	// FlagProactive enables the /proactive command.
+	FlagProactive FeatureFlag = "proactive"
+	// FlagKairos enables Kairos-related commands (/assistant, /proactive, /brief).
+	FlagKairos FeatureFlag = "kairos"
+	// FlagKairosBrief enables the /brief command.
+	FlagKairosBrief FeatureFlag = "kairos_brief"
+	// FlagBridgeMode enables the /bridge command.
+	FlagBridgeMode FeatureFlag = "bridge_mode"
+	// FlagVoiceMode enables the /voice command.
+	FlagVoiceMode FeatureFlag = "voice_mode"
+	// FlagHistorySnip enables the /force-snip command.
+	FlagHistorySnip FeatureFlag = "history_snip"
+	// FlagWorkflowScripts enables the /workflows command.
+	FlagWorkflowScripts FeatureFlag = "workflow_scripts"
+	// FlagKairosGithubWebhooks enables the /subscribe-pr command.
+	FlagKairosGithubWebhooks FeatureFlag = "kairos_github_webhooks"
+	// FlagUltraplan enables the /ultraplan command.
+	FlagUltraplan FeatureFlag = "ultraplan"
+	// FlagTorch enables the /torch command.
+	FlagTorch FeatureFlag = "torch"
+	// FlagUdsInbox enables the /peers command.
+	FlagUdsInbox FeatureFlag = "uds_inbox"
+	// FlagForkSubagent enables the /fork command.
+	FlagForkSubagent FeatureFlag = "fork_subagent"
+	// FlagBuddy enables the /buddy command.
+	FlagBuddy FeatureFlag = "buddy"
+	// FlagDaemon enables daemon-mode features.
+	FlagDaemon FeatureFlag = "daemon"
+	// FlagCcrRemoteSetup enables the /remote-setup (web) command.
+	FlagCcrRemoteSetup FeatureFlag = "ccr_remote_setup"
+	// FlagMcpSkills enables MCP skill commands.
+	FlagMcpSkills FeatureFlag = "mcp_skills"
+	// FlagExperimentalSkillSearch enables experimental skill search indexing.
+	FlagExperimentalSkillSearch FeatureFlag = "experimental_skill_search"
+	// FlagNewInit enables the new multi-phase /init prompt.
+	FlagNewInit FeatureFlag = "new_init"
+	// FlagCommitAttribution enables commit attribution texts.
+	FlagCommitAttribution FeatureFlag = "commit_attribution"
+	// FlagPromptCacheBreakDetection enables prompt cache break detection.
+	FlagPromptCacheBreakDetection FeatureFlag = "prompt_cache_break_detection"
+	// FlagCoordinatorMode enables coordinator mode for multi-agent.
+	FlagCoordinatorMode FeatureFlag = "coordinator_mode"
 )
 
 // AllFeatureFlags lists all known feature flags.
@@ -61,20 +106,27 @@ var AllFeatureFlags = []FeatureFlag{
 	FlagSubagents, FlagTeamMailbox, FlagHooks, FlagStructuredOutput,
 	FlagAuditLog, FlagSessionMemory, FlagMCP, FlagSkillDiscovery,
 	FlagMultiLineInput,
+	// Command-gating flags
+	FlagProactive, FlagKairos, FlagKairosBrief, FlagBridgeMode,
+	FlagVoiceMode, FlagHistorySnip, FlagWorkflowScripts,
+	FlagKairosGithubWebhooks, FlagUltraplan, FlagTorch, FlagUdsInbox,
+	FlagForkSubagent, FlagBuddy, FlagDaemon, FlagCcrRemoteSetup,
+	FlagMcpSkills, FlagExperimentalSkillSearch, FlagNewInit,
+	FlagCommitAttribution, FlagPromptCacheBreakDetection, FlagCoordinatorMode,
 }
 
 // defaultEnabledFlags are flags that are on by default.
 var defaultEnabledFlags = map[FeatureFlag]bool{
-	FlagAutoCompact:    true,
-	FlagMicroCompact:   true,
-	FlagPromptCache:    true,
-	FlagParallelTools:  true,
+	FlagAutoCompact:     true,
+	FlagMicroCompact:    true,
+	FlagPromptCache:     true,
+	FlagParallelTools:   true,
 	FlagReactiveCompact: true,
-	FlagYoloClassifier: true,
-	FlagHooks:          true,
-	FlagAuditLog:       true,
-	FlagSessionMemory:  true,
-	FlagMCP:            true,
+	FlagYoloClassifier:  true,
+	FlagHooks:           true,
+	FlagAuditLog:        true,
+	FlagSessionMemory:   true,
+	FlagMCP:             true,
 }
 
 // FeatureFlagStore manages feature flag state.

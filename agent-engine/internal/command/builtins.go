@@ -38,25 +38,51 @@ func (c *ClearCommand) Name() string                  { return "clear" }
 func (c *ClearCommand) Description() string           { return "Clear the conversation history." }
 func (c *ClearCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *ClearCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *ClearCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (string, error) {
-	return "__clear_history__", nil
+func (c *ClearCommand) Execute(ctx context.Context, _ []string, ectx *ExecContext) (string, error) {
+	return ClearConversation(ctx, ectx)
 }
 
 // ─── /model ───────────────────────────────────────────────────────────────────
+// Aligned with claude-code-main commands/model/index.ts (local-jsx).
+// Dynamic description shows current model. Interactive picker in TUI.
 
 type ModelCommand struct{ BaseCommand }
 
 func (c *ModelCommand) Name() string { return "model" }
 func (c *ModelCommand) Description() string {
-	return "Show or set the active model. Usage: /model [name]"
+	return "Set the AI model"
 }
-func (c *ModelCommand) Type() CommandType             { return CommandTypeLocal }
+func (c *ModelCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *ModelCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *ModelCommand) Execute(_ context.Context, args []string, ectx *ExecContext) (string, error) {
-	if len(args) == 0 {
-		return "Current model: (check engine config)", nil
+func (c *ModelCommand) ArgumentHint() string          { return "[model-name]" }
+
+// DynamicDescription returns a description that includes the current model.
+// Called by TUI to show "Set the AI model (currently claude-sonnet-4-20250514)".
+func (c *ModelCommand) DynamicDescription(ectx *ExecContext) string {
+	if ectx != nil && ectx.Model != "" {
+		return fmt.Sprintf("Set the AI model (currently %s)", ectx.Model)
 	}
-	return fmt.Sprintf("Model set to: %s (restart engine to apply)", args[0]), nil
+	return "Set the AI model"
+}
+
+func (c *ModelCommand) ExecuteInteractive(_ context.Context, args []string, ectx *ExecContext) (*InteractiveResult, error) {
+	data := &ModelPickerData{}
+	if ectx != nil {
+		data.CurrentModel = ectx.Model
+	}
+	if len(args) > 0 {
+		data.SelectedModel = args[0]
+	}
+	return &InteractiveResult{
+		Component: "model",
+		Data:      data,
+	}, nil
+}
+
+// ModelPickerData is the structured data for the model picker TUI component.
+type ModelPickerData struct {
+	CurrentModel  string `json:"current_model"`
+	SelectedModel string `json:"selected_model,omitempty"`
 }
 
 // ─── /compact ─────────────────────────────────────────────────────────────────
@@ -69,28 +95,11 @@ func (c *CompactCommand) Description() string {
 }
 func (c *CompactCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *CompactCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *CompactCommand) Execute(_ context.Context, _ []string, _ *ExecContext) (string, error) {
-	return "__compact__", nil
+func (c *CompactCommand) Execute(ctx context.Context, args []string, ectx *ExecContext) (string, error) {
+	return CompactConversation(ctx, args, ectx)
 }
 
-// ─── /cost ────────────────────────────────────────────────────────────────────
-
-type CostCommand struct{ BaseCommand }
-
-func (c *CostCommand) Name() string                  { return "cost" }
-func (c *CostCommand) Description() string           { return "Show the accumulated cost for this session." }
-func (c *CostCommand) Type() CommandType             { return CommandTypeLocal }
-func (c *CostCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *CostCommand) Execute(_ context.Context, _ []string, ectx *ExecContext) (string, error) {
-	if ectx == nil {
-		return "Cost: unknown (no session context)", nil
-	}
-	lines := []string{fmt.Sprintf("Cost: $%.4f", ectx.CostUSD)}
-	if ectx.TotalTokens > 0 {
-		lines = append(lines, fmt.Sprintf("Total tokens: %d", ectx.TotalTokens))
-	}
-	return strings.Join(lines, "\n"), nil
-}
+// CostCommand stub removed — replaced by DeepCostCommand in cost_impl.go.
 
 // ─── /status ──────────────────────────────────────────────────────────────────
 
@@ -116,7 +125,6 @@ var defaultRegistry = func() *Registry {
 		&ClearCommand{},
 		&ModelCommand{},
 		&CompactCommand{},
-		&CostCommand{},
 		&StatusCommand{},
 	)
 	return r

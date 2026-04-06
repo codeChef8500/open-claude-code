@@ -29,7 +29,7 @@ func NewClient(socketPath string) *Client {
 
 // Connect dials the IPC server with a timeout.
 func (c *Client) Connect(timeout time.Duration) error {
-	conn, err := net.DialTimeout("unix", c.socketPath, timeout)
+	conn, err := dialPlatform(c.socketPath, timeout)
 	if err != nil {
 		return fmt.Errorf("ipc connect %s: %w", c.socketPath, err)
 	}

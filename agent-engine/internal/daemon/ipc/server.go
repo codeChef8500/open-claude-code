@@ -62,7 +62,7 @@ func (s *Server) Listen(ctx context.Context) error {
 	// Remove stale socket file
 	_ = os.Remove(s.socketPath)
 
-	ln, err := net.Listen("unix", s.socketPath)
+	ln, err := listenPlatform(s.socketPath)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", s.socketPath, err)
 	}

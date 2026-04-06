@@ -104,6 +104,10 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newServeCmd())
 	rootCmd.AddCommand(newDoctorCmd())
 	rootCmd.AddCommand(newDaemonCmd())
+	rootCmd.AddCommand(newPsCmd())
+	rootCmd.AddCommand(newLogsCmd())
+	rootCmd.AddCommand(newAttachCmd())
+	rootCmd.AddCommand(newKillCmd())
 
 	return rootCmd
 }

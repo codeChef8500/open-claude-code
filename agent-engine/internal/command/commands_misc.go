@@ -117,23 +117,6 @@ func (c *TagCommand) ExecuteInteractive(_ context.Context, args []string, _ *Exe
 	}, nil
 }
 
-// ─── /usage ──────────────────────────────────────────────────────────────────
-
-// UsageCommand shows plan usage limits.
-// Aligned with claude-code-main commands/usage/index.ts (local-jsx, claude-ai only).
-type UsageCommand struct{ BaseCommand }
-
-func (c *UsageCommand) Name() string        { return "usage" }
-func (c *UsageCommand) Description() string { return "Show plan usage limits" }
-func (c *UsageCommand) Availability() []CommandAvailability {
-	return []CommandAvailability{AvailabilityClaudeAI}
-}
-func (c *UsageCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *UsageCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *UsageCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "usage"}, nil
-}
-
 // ─── /desktop ────────────────────────────────────────────────────────────────
 
 // DesktopCommand manages desktop app settings.
@@ -192,20 +175,6 @@ func (c *ReloadPluginsCommand) ExecuteInteractive(_ context.Context, _ []string,
 	return &InteractiveResult{Component: "reload-plugins"}, nil
 }
 
-// ─── /bridge ─────────────────────────────────────────────────────────────────
-
-// BridgeCommand manages bridge connections.
-// Aligned with claude-code-main commands/bridge/index.ts (local-jsx).
-type BridgeCommand struct{ BaseCommand }
-
-func (c *BridgeCommand) Name() string                  { return "bridge" }
-func (c *BridgeCommand) Description() string           { return "Manage bridge connections" }
-func (c *BridgeCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *BridgeCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *BridgeCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "bridge"}, nil
-}
-
 // ─── /bridge-kick ────────────────────────────────────────────────────────────
 
 // BridgeKickCommand kicks a bridge peer.
@@ -240,20 +209,6 @@ func (c *BtwCommand) ExecuteInteractive(_ context.Context, args []string, _ *Exe
 		Component: "btw",
 		Data:      map[string]interface{}{"message": msg},
 	}, nil
-}
-
-// ─── /passes ─────────────────────────────────────────────────────────────────
-
-// PassesCommand shows active passes.
-// Aligned with claude-code-main commands/passes/index.ts (local-jsx).
-type PassesCommand struct{ BaseCommand }
-
-func (c *PassesCommand) Name() string                  { return "passes" }
-func (c *PassesCommand) Description() string           { return "Show active passes" }
-func (c *PassesCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *PassesCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *PassesCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "passes"}, nil
 }
 
 // ─── /release-notes ──────────────────────────────────────────────────────────
@@ -294,15 +249,12 @@ func init() {
 		&StatsCommand{},
 		&AdvisorCommand{},
 		&TagCommand{},
-		&UsageCommand{},
 		&DesktopCommand{},
 		&PrivacySettingsCommand{},
 		&UpgradeCommand{},
 		&ReloadPluginsCommand{},
-		&BridgeCommand{},
 		&BridgeKickCommand{},
 		&BtwCommand{},
-		&PassesCommand{},
 		&ReleaseNotesCommand{},
 		&TerminalSetupCommand{},
 	)

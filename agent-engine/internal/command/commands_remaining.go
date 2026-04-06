@@ -18,19 +18,6 @@ func (c *MobileCommand) ExecuteInteractive(_ context.Context, _ []string, _ *Exe
 	return &InteractiveResult{Component: "mobile"}, nil
 }
 
-// ─── /voice ──────────────────────────────────────────────────────────────────
-// Aligned with claude-code-main commands/voice/index.ts (local-jsx).
-
-type VoiceCommand struct{ BaseCommand }
-
-func (c *VoiceCommand) Name() string                  { return "voice" }
-func (c *VoiceCommand) Description() string           { return "Toggle voice input mode" }
-func (c *VoiceCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *VoiceCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *VoiceCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "voice"}, nil
-}
-
 // ─── /chrome ─────────────────────────────────────────────────────────────────
 // Aligned with claude-code-main commands/chrome/index.ts (local-jsx).
 
@@ -55,22 +42,6 @@ func (c *IDECommand) Type() CommandType             { return CommandTypeInteract
 func (c *IDECommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *IDECommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
 	return &InteractiveResult{Component: "ide"}, nil
-}
-
-// ─── /extra-usage ────────────────────────────────────────────────────────────
-// Aligned with claude-code-main commands/extra-usage/index.ts (local-jsx).
-
-type ExtraUsageCommand struct{ BaseCommand }
-
-func (c *ExtraUsageCommand) Name() string        { return "extra-usage" }
-func (c *ExtraUsageCommand) Description() string { return "View extra usage options" }
-func (c *ExtraUsageCommand) Availability() []CommandAvailability {
-	return []CommandAvailability{AvailabilityClaudeAI}
-}
-func (c *ExtraUsageCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *ExtraUsageCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *ExtraUsageCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "extra-usage"}, nil
 }
 
 // ─── /sandbox-toggle ─────────────────────────────────────────────────────────
@@ -255,10 +226,8 @@ func (c *HeapdumpCommand) Execute(_ context.Context, _ []string, _ *ExecContext)
 func init() {
 	defaultRegistry.Register(
 		&MobileCommand{},
-		&VoiceCommand{},
 		&ChromeCommand{},
 		&IDECommand{},
-		&ExtraUsageCommand{},
 		&SandboxToggleCommand{},
 		&RateLimitOptionsCommand{},
 		&InstallGitHubAppCommand{},

@@ -357,4 +357,7 @@ type ExecContext struct {
 	EngineRef interface{}
 	// RegistryRef provides access to the command registry.
 	RegistryRef *Registry
+	// Services provides access to aggregated service dependencies.
+	// Commands should nil-check before use.
+	Services *CommandServices
 }
