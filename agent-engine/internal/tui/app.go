@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/wall-ai/agent-engine/internal/buddy"
+	"github.com/wall-ai/agent-engine/internal/tui/askquestion"
 	"github.com/wall-ai/agent-engine/internal/tui/color"
 	"github.com/wall-ai/agent-engine/internal/tui/companion"
 	"github.com/wall-ai/agent-engine/internal/tui/designsystem"
@@ -83,6 +84,9 @@ type App struct {
 
 	// Footer navigation (P7)
 	footerFocused bool // true when arrow-down enters footer mode
+
+	// AskUserQuestion interactive dialog
+	askDialog *askquestion.AskQuestionDialog
 
 	// SubmitFn is called when the user sends a message.
 	SubmitFn func(text string)
@@ -208,6 +212,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		spCmd tea.Cmd
 		cmds  []tea.Cmd
 	)
+
+	// ── AskUserQuestion dialog intercepts all keys while visible ─────────
+	if a.askDialog != nil && a.askDialog.IsVisible() {
+		var aqCmd tea.Cmd
+		a.askDialog, aqCmd = a.askDialog.Update(msg)
+		if aqCmd != nil {
+			cmds = append(cmds, aqCmd)
+		}
+		// If dialog closed, nil it out
+		if !a.askDialog.IsVisible() {
+			a.askDialog = nil
+		}
+		return a, tea.Batch(cmds...)
+	}
 
 	// ── Permission modal intercepts all keys while visible ────────────────
 	if a.permission.IsVisible() {
@@ -575,6 +593,33 @@ func (a *App) AskPermission(toolName, desc string) {
 	a.permission.Ask(toolName, desc)
 }
 
+// AskQuestionDialogOpts configures the interactive AskUserQuestion dialog.
+type AskQuestionDialogOpts struct {
+	Questions    []askquestion.Question
+	ResultCh     chan<- askquestion.AskQuestionResponse
+	PlanFilePath string // non-empty enables plan mode footer
+	EditorName   string // external editor name for ctrl+g hint
+}
+
+// ShowAskQuestionDialog shows the interactive AskUserQuestion dialog.
+// The result is sent to ResultCh when the user completes or cancels.
+func (a *App) ShowAskQuestionDialog(opts AskQuestionDialogOpts) {
+	d := askquestion.NewAskQuestionDialog(opts.Questions, opts.ResultCh)
+	d.SetDimensions(a.layout.Width(), a.layout.Height())
+	if opts.PlanFilePath != "" {
+		d.SetPlanMode(opts.PlanFilePath)
+	}
+	if opts.EditorName != "" {
+		d.SetEditorName(opts.EditorName)
+	}
+	a.askDialog = d
+}
+
+// IsAskDialogVisible reports whether the AskUserQuestion dialog is showing.
+func (a *App) IsAskDialogVisible() bool {
+	return a.askDialog != nil && a.askDialog.IsVisible()
+}
+
 // UpdateDiffStats updates the lines added/deleted counters for the status bar.
 func (a *App) UpdateDiffStats(added, deleted int) {
 	a.linesAdded += added
@@ -655,6 +700,11 @@ func (a *App) View() string {
 	}
 
 	view := a.layout.Compose(header, body, input, footer)
+
+	// Overlay AskUserQuestion dialog if visible
+	if a.askDialog != nil && a.askDialog.IsVisible() {
+		view += "\n" + a.askDialog.View()
+	}
 
 	// Overlay permission dialog if visible
 	if a.permission.IsVisible() {
@@ -738,7 +788,7 @@ func (a *App) renderInput() string {
 
 	// P14: Hide companion when permission dialog or help overlay is showing
 	// (matches claude-code-main: companionVisible = !toolJSX?.shouldHidePromptInput && !focusedInputDialog)
-	companionVisible := a.companionView.IsVisible() && !a.permission.IsVisible() && !a.showHelp
+	companionVisible := a.companionView.IsVisible() && !a.permission.IsVisible() && !a.showHelp && !a.IsAskDialogVisible()
 
 	// Calculate input width, reserving space for companion sprite if visible.
 	inputW := w
