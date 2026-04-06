@@ -73,6 +73,11 @@ func dispatchCommand(ctx context.Context, cmd Command, name string, args []strin
 		if result == nil {
 			return "", nil
 		}
+		// Extract fallback text from the result data so text-mode TUI can
+		// display meaningful output instead of a generic "/<cmd> executed." stub.
+		if fb := extractFallbackText(result.Data); fb != "" {
+			return "__interactive__:" + result.Component + "\n" + fb, nil
+		}
 		// Encode as __interactive__:<component> for the TUI layer to handle.
 		return "__interactive__:" + result.Component, nil
 	case LocalCommand:
@@ -89,6 +94,36 @@ func dispatchCommand(ctx context.Context, cmd Command, name string, args []strin
 		return "__prompt__:" + content, nil
 	default:
 		return "", fmt.Errorf("command /%s has unknown type", name)
+	}
+}
+
+// extractFallbackText attempts to pull a FallbackText string from an
+// InteractiveResult.Data value.  Many interactive commands store a
+// FallbackText field on their view-data struct for non-interactive contexts.
+func extractFallbackText(data interface{}) string {
+	if data == nil {
+		return ""
+	}
+	// Check for the FallbackTexter interface first.
+	if ft, ok := data.(interface{ GetFallbackText() string }); ok {
+		return ft.GetFallbackText()
+	}
+	// Fall back to reflection-free duck typing on common concrete types.
+	switch d := data.(type) {
+	case *HelpViewData:
+		return d.FallbackText
+	case *StatusViewDataV2:
+		return d.FallbackText
+	case *SessionViewData:
+		return d.FallbackText
+	default:
+		// Use a map-based probe for arbitrary data (e.g. map[string]interface{}).
+		if m, ok := d.(map[string]interface{}); ok {
+			if fb, ok := m["fallback_text"].(string); ok {
+				return fb
+			}
+		}
+		return ""
 	}
 }
 

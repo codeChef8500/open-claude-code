@@ -31,8 +31,8 @@ type ResumeViewData struct {
 type ResumeSessionEntry struct {
 	ID           string `json:"id"`
 	Title        string `json:"title"`
-	CreatedAt    string `json:"created_at"`    // human-readable
-	UpdatedAt    string `json:"updated_at"`    // human-readable
+	CreatedAt    string `json:"created_at"` // human-readable
+	UpdatedAt    string `json:"updated_at"` // human-readable
 	MessageCount int    `json:"message_count"`
 	Model        string `json:"model"`
 	CWD          string `json:"cwd"`
@@ -111,7 +111,8 @@ type SessionViewData struct {
 	Permission     string `json:"permission_mode"`
 	MCPServers     int    `json:"mcp_servers"`
 	// For remote connection
-	RemoteURL string `json:"remote_url,omitempty"`
+	RemoteURL    string `json:"remote_url,omitempty"`
+	FallbackText string `json:"fallback_text,omitempty"`
 }
 
 // DeepSessionCommand replaces the basic SessionCommand with full logic.
@@ -140,10 +141,32 @@ func (c *DeepSessionCommand) ExecuteInteractive(_ context.Context, _ []string, e
 		data.MCPServers = len(ectx.ActiveMCPServers)
 	}
 
+	data.FallbackText = buildSessionText(data)
 	return &InteractiveResult{
 		Component: "session",
 		Data:      data,
 	}, nil
+}
+
+func buildSessionText(d *SessionViewData) string {
+	lines := []string{
+		fmt.Sprintf("Session:  %s", d.SessionID),
+		fmt.Sprintf("WorkDir:  %s", d.WorkDir),
+		fmt.Sprintf("Model:    %s", d.Model),
+		fmt.Sprintf("Turns:    %d", d.TurnCount),
+		fmt.Sprintf("Tokens:   %d", d.TotalTokens),
+		fmt.Sprintf("Cost:     %s", d.CostUSD),
+	}
+	if d.Effort != "" {
+		lines = append(lines, fmt.Sprintf("Effort:   %s", d.Effort))
+	}
+	if d.Permission != "" {
+		lines = append(lines, fmt.Sprintf("Perms:    %s", d.Permission))
+	}
+	if d.RemoteURL != "" {
+		lines = append(lines, fmt.Sprintf("Remote:   %s", d.RemoteURL))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ─── /diff deep implementation ──────────────────────────────────────────────
@@ -242,9 +265,11 @@ type RewindCheckpoint struct {
 // DeepRewindCommand replaces the basic RewindCommand with full logic.
 type DeepRewindCommand struct{ BaseCommand }
 
-func (c *DeepRewindCommand) Name() string                  { return "rewind" }
-func (c *DeepRewindCommand) Aliases() []string             { return []string{"checkpoint"} }
-func (c *DeepRewindCommand) Description() string           { return "Restore code and/or conversation to a previous point" }
+func (c *DeepRewindCommand) Name() string      { return "rewind" }
+func (c *DeepRewindCommand) Aliases() []string { return []string{"checkpoint"} }
+func (c *DeepRewindCommand) Description() string {
+	return "Restore code and/or conversation to a previous point"
+}
 func (c *DeepRewindCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *DeepRewindCommand) IsEnabled(_ *ExecContext) bool { return true }
 
@@ -296,8 +321,10 @@ type BranchViewData struct {
 // DeepBranchCommand replaces the basic BranchCommand with full logic.
 type DeepBranchCommand struct{ BaseCommand }
 
-func (c *DeepBranchCommand) Name() string                  { return "branch" }
-func (c *DeepBranchCommand) Description() string           { return "Create a branch of the current conversation at this point" }
+func (c *DeepBranchCommand) Name() string { return "branch" }
+func (c *DeepBranchCommand) Description() string {
+	return "Create a branch of the current conversation at this point"
+}
 func (c *DeepBranchCommand) ArgumentHint() string          { return "[name]" }
 func (c *DeepBranchCommand) Type() CommandType             { return CommandTypeInteractive }
 func (c *DeepBranchCommand) IsEnabled(_ *ExecContext) bool { return true }

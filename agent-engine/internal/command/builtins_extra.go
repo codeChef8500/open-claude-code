@@ -6,18 +6,7 @@ import (
 	"strings"
 )
 
-// ─── /memory ──────────────────────────────────────────────────────────────────
-// Aligned with claude-code-main commands/memory/index.ts (local-jsx).
-
-type MemoryCommand struct{ BaseCommand }
-
-func (c *MemoryCommand) Name() string                  { return "memory" }
-func (c *MemoryCommand) Description() string           { return "Edit Claude memory files" }
-func (c *MemoryCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *MemoryCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *MemoryCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "memory"}, nil
-}
+// MemoryCommand shell removed — replaced by DeepMemoryCommand in commands_deep_p1.go.
 
 // ─── /resume ──────────────────────────────────────────────────────────────────
 // Aligned with claude-code-main commands/resume/index.ts (local-jsx).
@@ -40,51 +29,9 @@ func (c *ResumeCommand) ExecuteInteractive(_ context.Context, args []string, _ *
 	}, nil
 }
 
-// ─── /session ─────────────────────────────────────────────────────────────────
-// Aligned with claude-code-main commands/session/index.ts (local-jsx).
+// SessionCommand shell removed — replaced by DeepSessionCommand in session_impl.go.
 
-type SessionCommand struct{ BaseCommand }
-
-func (c *SessionCommand) Name() string                  { return "session" }
-func (c *SessionCommand) Aliases() []string             { return []string{"remote"} }
-func (c *SessionCommand) Description() string           { return "Show session info and remote URL" }
-func (c *SessionCommand) Type() CommandType             { return CommandTypeLocal }
-func (c *SessionCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *SessionCommand) Execute(_ context.Context, _ []string, ectx *ExecContext) (string, error) {
-	if ectx == nil {
-		return "No active session.", nil
-	}
-	lines := []string{
-		fmt.Sprintf("Session: %s", ectx.SessionID),
-		fmt.Sprintf("WorkDir: %s", ectx.WorkDir),
-		fmt.Sprintf("Model:   %s", ectx.Model),
-		fmt.Sprintf("Turns:   %d", ectx.TurnCount),
-	}
-	if ectx.PlanModeActive {
-		lines = append(lines, "Mode:    plan")
-	}
-	if ectx.FastMode {
-		lines = append(lines, "Fast:    on")
-	}
-	if ectx.AutoMode {
-		lines = append(lines, "Auto:    on")
-	}
-	return strings.Join(lines, "\n"), nil
-}
-
-// ─── /permissions ─────────────────────────────────────────────────────────────
-// Aligned with claude-code-main commands/permissions/index.ts (local-jsx).
-
-type PermissionsCommand struct{ BaseCommand }
-
-func (c *PermissionsCommand) Name() string                  { return "permissions" }
-func (c *PermissionsCommand) Aliases() []string             { return []string{"allowed-tools"} }
-func (c *PermissionsCommand) Description() string           { return "Manage allow & deny tool permission rules" }
-func (c *PermissionsCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *PermissionsCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *PermissionsCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "permissions"}, nil
-}
+// PermissionsCommand shell removed — replaced by DeepPermissionsCommand in commands_deep_p1.go.
 
 // ─── /plugin ──────────────────────────────────────────────────────────────────
 // Aligned with claude-code-main commands/plugin/index.tsx (local-jsx).
@@ -156,10 +103,7 @@ func (c *AutoModeCommand) Execute(_ context.Context, args []string, ectx *ExecCo
 
 func init() {
 	defaultRegistry.Register(
-		&MemoryCommand{},
 		&ResumeCommand{},
-		&SessionCommand{},
-		&PermissionsCommand{},
 		&PluginCommand{},
 		&SkillsCommand{},
 		&BuddyCommand{},

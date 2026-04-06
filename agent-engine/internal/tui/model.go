@@ -87,6 +87,12 @@ type SystemMsg struct {
 	Text string
 }
 
+// ClearHistoryMsg signals the TUI to clear the conversation message list.
+type ClearHistoryMsg struct{}
+
+// CompactHistoryMsg signals the TUI to trigger context compaction.
+type CompactHistoryMsg struct{}
+
 // ── Companion Bubbletea messages ─────────────────────────────────────────────
 
 // CompanionLoadMsg signals that a companion has been loaded/hatched.

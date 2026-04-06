@@ -101,6 +101,12 @@ func handleInteractiveInput(ctx context.Context, runner *session.Runner, p *tea.
 	runner.OnSystem = func(t string) {
 		p.Send(tui.SystemMsg{Text: t})
 	}
+	runner.OnClearHistory = func() {
+		p.Send(tui.ClearHistoryMsg{})
+	}
+	runner.OnCompact = func() {
+		p.Send(tui.CompactHistoryMsg{})
+	}
 
 	// Companion callbacks → TUI state sync
 	runner.OnCompanionLoad = func(comp *buddy.Companion) {

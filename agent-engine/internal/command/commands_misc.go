@@ -6,70 +6,19 @@ import (
 	"strings"
 )
 
-// ─── /add-dir ────────────────────────────────────────────────────────────────
-
-// AddDirCommand adds a new working directory.
-// Aligned with claude-code-main commands/add-dir/index.ts (local-jsx).
-type AddDirCommand struct{ BaseCommand }
-
-func (c *AddDirCommand) Name() string                  { return "add-dir" }
-func (c *AddDirCommand) Description() string           { return "Add a new working directory" }
-func (c *AddDirCommand) ArgumentHint() string          { return "<path>" }
-func (c *AddDirCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *AddDirCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *AddDirCommand) ExecuteInteractive(_ context.Context, args []string, _ *ExecContext) (*InteractiveResult, error) {
-	path := ""
-	if len(args) > 0 {
-		path = strings.Join(args, " ")
-	}
-	return &InteractiveResult{
-		Component: "add-dir",
-		Data:      map[string]interface{}{"path": path},
-	}, nil
-}
+// AddDirCommand shell removed — replaced by DeepAddDirCommand in commands_deep_p1.go.
 
 // ─── /hooks ──────────────────────────────────────────────────────────────────
 
-// HooksCommand views hook configurations for tool events.
-// Aligned with claude-code-main commands/hooks/index.ts (local-jsx, immediate).
-type HooksCommand struct{ BaseCommand }
-
-func (c *HooksCommand) Name() string                  { return "hooks" }
-func (c *HooksCommand) Description() string           { return "View hook configurations for tool events" }
-func (c *HooksCommand) IsImmediate() bool             { return true }
-func (c *HooksCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *HooksCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *HooksCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "hooks"}, nil
-}
+// HooksCommand shell removed — replaced by DeepHooksCommand in commands_deep_p1.go.
 
 // ─── /feedback ───────────────────────────────────────────────────────────────
 
-// FeedbackCommand opens the feedback form.
-// Aligned with claude-code-main commands/feedback/index.ts (local-jsx).
-type FeedbackCommand struct{ BaseCommand }
-
-func (c *FeedbackCommand) Name() string                  { return "feedback" }
-func (c *FeedbackCommand) Description() string           { return "Send feedback about openclaude-go" }
-func (c *FeedbackCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *FeedbackCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *FeedbackCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "feedback"}, nil
-}
+// FeedbackCommand shell removed — replaced by DeepFeedbackCommand in commands_deep_p1.go.
 
 // ─── /stats ──────────────────────────────────────────────────────────────────
 
-// StatsCommand shows session statistics.
-// Aligned with claude-code-main commands/stats/index.ts (local-jsx).
-type StatsCommand struct{ BaseCommand }
-
-func (c *StatsCommand) Name() string                  { return "stats" }
-func (c *StatsCommand) Description() string           { return "Show session statistics" }
-func (c *StatsCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *StatsCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *StatsCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "stats"}, nil
-}
+// StatsCommand shell removed — replaced by DeepStatsCommand in commands_deep_p1.go.
 
 // ─── /advisor ────────────────────────────────────────────────────────────────
 
@@ -117,49 +66,9 @@ func (c *TagCommand) ExecuteInteractive(_ context.Context, args []string, _ *Exe
 	}, nil
 }
 
-// ─── /desktop ────────────────────────────────────────────────────────────────
-
-// DesktopCommand manages desktop app settings.
-// Aligned with claude-code-main commands/desktop/index.ts (local-jsx).
-type DesktopCommand struct{ BaseCommand }
-
-func (c *DesktopCommand) Name() string                  { return "desktop" }
-func (c *DesktopCommand) Description() string           { return "Manage desktop app settings" }
-func (c *DesktopCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *DesktopCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *DesktopCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "desktop"}, nil
-}
-
-// ─── /privacy-settings ───────────────────────────────────────────────────────
-
-// PrivacySettingsCommand configures privacy settings.
-// Aligned with claude-code-main commands/privacy-settings/index.ts (local-jsx).
-type PrivacySettingsCommand struct{ BaseCommand }
-
-func (c *PrivacySettingsCommand) Name() string                  { return "privacy-settings" }
-func (c *PrivacySettingsCommand) Aliases() []string             { return []string{"privacy"} }
-func (c *PrivacySettingsCommand) Description() string           { return "Configure privacy settings" }
-func (c *PrivacySettingsCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *PrivacySettingsCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *PrivacySettingsCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "privacy-settings"}, nil
-}
-
-// ─── /upgrade ────────────────────────────────────────────────────────────────
-
-// UpgradeCommand upgrades openclaude-go to the latest version.
-// Aligned with claude-code-main commands/upgrade/index.ts (local-jsx).
-type UpgradeCommand struct{ BaseCommand }
-
-func (c *UpgradeCommand) Name() string                  { return "upgrade" }
-func (c *UpgradeCommand) Aliases() []string             { return []string{"update"} }
-func (c *UpgradeCommand) Description() string           { return "Upgrade to the latest version" }
-func (c *UpgradeCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *UpgradeCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *UpgradeCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "upgrade"}, nil
-}
+// DesktopCommand shell removed — replaced by DeepDesktopCommand in commands_deep_p2.go.
+// PrivacySettingsCommand shell removed — replaced by DeepPrivacySettingsCommand in commands_deep_p2.go.
+// UpgradeCommand shell removed — replaced by DeepUpgradeCommand in commands_deep_p2.go.
 
 // ─── /reload-plugins ─────────────────────────────────────────────────────────
 
@@ -190,72 +99,15 @@ func (c *BridgeKickCommand) PromptContent(_ []string, _ *ExecContext) (string, e
 	return "Kick the bridge peer from this session.", nil
 }
 
-// ─── /btw ────────────────────────────────────────────────────────────────────
-
-// BtwCommand sends a side message to the model.
-// Aligned with claude-code-main commands/btw/index.ts (local-jsx).
-type BtwCommand struct{ BaseCommand }
-
-func (c *BtwCommand) Name() string                  { return "btw" }
-func (c *BtwCommand) Description() string           { return "Send a side message to the model" }
-func (c *BtwCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *BtwCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *BtwCommand) ExecuteInteractive(_ context.Context, args []string, _ *ExecContext) (*InteractiveResult, error) {
-	msg := ""
-	if len(args) > 0 {
-		msg = strings.Join(args, " ")
-	}
-	return &InteractiveResult{
-		Component: "btw",
-		Data:      map[string]interface{}{"message": msg},
-	}, nil
-}
-
-// ─── /release-notes ──────────────────────────────────────────────────────────
-
-// ReleaseNotesCommand shows release notes.
-// Aligned with claude-code-main commands/release-notes/index.ts (local-jsx).
-type ReleaseNotesCommand struct{ BaseCommand }
-
-func (c *ReleaseNotesCommand) Name() string                  { return "release-notes" }
-func (c *ReleaseNotesCommand) Aliases() []string             { return []string{"changelog"} }
-func (c *ReleaseNotesCommand) Description() string           { return "Show release notes" }
-func (c *ReleaseNotesCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *ReleaseNotesCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *ReleaseNotesCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "release-notes"}, nil
-}
-
-// ─── /terminal-setup ─────────────────────────────────────────────────────────
-
-// TerminalSetupCommand configures terminal settings.
-// Aligned with claude-code-main commands/terminalSetup/index.ts (local-jsx).
-type TerminalSetupCommand struct{ BaseCommand }
-
-func (c *TerminalSetupCommand) Name() string                  { return "terminal-setup" }
-func (c *TerminalSetupCommand) Aliases() []string             { return []string{"terminalsetup"} }
-func (c *TerminalSetupCommand) Description() string           { return "Configure terminal settings" }
-func (c *TerminalSetupCommand) Type() CommandType             { return CommandTypeInteractive }
-func (c *TerminalSetupCommand) IsEnabled(_ *ExecContext) bool { return true }
-func (c *TerminalSetupCommand) ExecuteInteractive(_ context.Context, _ []string, _ *ExecContext) (*InteractiveResult, error) {
-	return &InteractiveResult{Component: "terminal-setup"}, nil
-}
+// BtwCommand shell removed — replaced by DeepBtwCommand in commands_deep_p2.go.
+// ReleaseNotesCommand shell removed — replaced by DeepReleaseNotesCommand in commands_deep_p2.go.
+// TerminalSetupCommand shell removed — replaced by DeepTerminalSetupCommand in commands_deep_p2.go.
 
 func init() {
 	defaultRegistry.Register(
-		&AddDirCommand{},
-		&HooksCommand{},
-		&FeedbackCommand{},
-		&StatsCommand{},
 		&AdvisorCommand{},
 		&TagCommand{},
-		&DesktopCommand{},
-		&PrivacySettingsCommand{},
-		&UpgradeCommand{},
 		&ReloadPluginsCommand{},
 		&BridgeKickCommand{},
-		&BtwCommand{},
-		&ReleaseNotesCommand{},
-		&TerminalSetupCommand{},
 	)
 }

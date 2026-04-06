@@ -22,12 +22,14 @@ type Runner struct {
 	result *BootstrapResult
 
 	// Callbacks for UI integration.
-	OnTextDelta func(text string)
-	OnToolStart func(id, name, input string)
-	OnToolDone  func(id, output string, isError bool)
-	OnDone      func()
-	OnError     func(err error)
-	OnSystem    func(text string)
+	OnTextDelta    func(text string)
+	OnToolStart    func(id, name, input string)
+	OnToolDone     func(id, output string, isError bool)
+	OnDone         func()
+	OnError        func(err error)
+	OnSystem       func(text string)
+	OnClearHistory func()
+	OnCompact      func()
 
 	// Companion callbacks — called by handleBuddySignal to sync TUI state.
 	OnCompanionLoad     func(comp *buddy.Companion)
@@ -49,6 +51,8 @@ func NewRunner(result *BootstrapResult) *Runner {
 		OnDone:              func() {},
 		OnError:             func(error) {},
 		OnSystem:            func(string) {},
+		OnClearHistory:      func() {},
+		OnCompact:           func() {},
 		OnCompanionLoad:     func(*buddy.Companion) {},
 		OnCompanionPet:      func(int64) {},
 		OnCompanionMute:     func(bool) {},
@@ -119,12 +123,12 @@ func (r *Runner) dispatchCommandResult(ctx context.Context, output string) bool 
 		return false
 
 	case output == "__clear_history__":
-		r.OnSystem("Conversation cleared.")
+		r.OnClearHistory()
 		r.OnDone()
 		return true
 
 	case output == "__compact__":
-		r.OnSystem("Compacting conversation context…")
+		r.OnCompact()
 		r.OnDone()
 		return true
 
@@ -142,8 +146,15 @@ func (r *Runner) dispatchCommandResult(ctx context.Context, output string) bool 
 
 	case strings.HasPrefix(output, "__interactive__:"):
 		// Interactive command: render a text-mode fallback.
-		component := strings.TrimPrefix(output, "__interactive__:")
-		r.OnSystem(formatInteractiveResult(component))
+		rest := strings.TrimPrefix(output, "__interactive__:")
+		// If the executor embedded fallback text after the component name
+		// (separated by "\n"), display that instead of the generic stub.
+		if idx := strings.Index(rest, "\n"); idx >= 0 {
+			fallback := rest[idx+1:]
+			r.OnSystem(fallback)
+		} else {
+			r.OnSystem(formatInteractiveResult(rest))
+		}
 		r.OnDone()
 		return true
 

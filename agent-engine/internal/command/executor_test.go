@@ -85,8 +85,8 @@ func TestCommandTypes(t *testing.T) {
 		input    string
 		wantType string // "text", "interactive", "prompt", "quit", "clear", "compact", "error"
 	}{
-		{"/help", "text"},
-		{"/status", "text"},
+		{"/help", "interactive"},
+		{"/status", "interactive"},
 		{"/cost", "text"},
 		{"/model", "interactive"},
 		{"/verbose", "text"},

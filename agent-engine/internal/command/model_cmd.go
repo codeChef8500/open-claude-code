@@ -57,9 +57,15 @@ func (c *PlanCommand) ExecuteInteractive(_ context.Context, args []string, ectx 
 	data := map[string]interface{}{}
 	if ectx != nil {
 		data["planModeActive"] = ectx.PlanModeActive
+		if ectx.PlanModeActive {
+			data["fallback_text"] = "Plan mode: ON — will plan without executing."
+		} else {
+			data["fallback_text"] = "Plan mode: OFF — normal execution."
+		}
 	}
 	if len(args) > 0 {
 		data["message"] = strings.Join(args, " ")
+		data["fallback_text"] = "Plan mode activated with message: " + strings.Join(args, " ")
 	}
 	return &InteractiveResult{
 		Component: "plan",
@@ -81,6 +87,11 @@ func (c *FastCommand) ExecuteInteractive(_ context.Context, _ []string, ectx *Ex
 	data := map[string]interface{}{}
 	if ectx != nil {
 		data["fastMode"] = ectx.FastMode
+		if ectx.FastMode {
+			data["fallback_text"] = "Fast mode: ON — using smaller, faster model for simple tasks."
+		} else {
+			data["fallback_text"] = "Fast mode: OFF — using default model."
+		}
 	}
 	return &InteractiveResult{
 		Component: "fast",
@@ -102,11 +113,19 @@ func (c *EffortCommand) Type() CommandType             { return CommandTypeInter
 func (c *EffortCommand) IsEnabled(_ *ExecContext) bool { return true }
 func (c *EffortCommand) ExecuteInteractive(_ context.Context, args []string, ectx *ExecContext) (*InteractiveResult, error) {
 	data := map[string]interface{}{}
+	current := "medium"
 	if ectx != nil {
-		data["current"] = ectx.EffortLevel
+		if ectx.EffortLevel != "" {
+			current = ectx.EffortLevel
+		}
+		data["current"] = current
 	}
 	if len(args) > 0 {
-		data["selected"] = strings.ToLower(args[0])
+		selected := strings.ToLower(args[0])
+		data["selected"] = selected
+		data["fallback_text"] = fmt.Sprintf("Effort level set to: %s", selected)
+	} else {
+		data["fallback_text"] = fmt.Sprintf("Effort level: %s\nUsage: /effort [low|medium|high|max|auto]", current)
 	}
 	return &InteractiveResult{
 		Component: "effort",

@@ -473,6 +473,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.refreshViewport()
 		a.viewport.GotoBottom()
 
+	case ClearHistoryMsg:
+		// Actually clear conversation messages (keep banner if present).
+		var kept []ChatMessage
+		for _, m := range a.messages {
+			if m.Role == "banner" {
+				kept = append(kept, m)
+			}
+		}
+		a.messages = kept
+		a.messages = append(a.messages, ChatMessage{Role: "system", Content: "Conversation cleared."})
+		a.refreshViewport()
+		a.viewport.GotoBottom()
+
+	case CompactHistoryMsg:
+		a.messages = append(a.messages, ChatMessage{Role: "system", Content: "Context compacted."})
+		a.refreshViewport()
+		a.viewport.GotoBottom()
+
 	case PermissionAnswerMsg:
 		// Answered — engine handles this via callback.
 
