@@ -42,6 +42,8 @@ func (a *Adapter) BuildParts(opts engine.SystemPromptOptions) engine.SystemPromp
 		BuddyActive:        opts.BuddyActive,
 		CompanionName:      opts.CompanionName,
 		CompanionSpecies:   opts.CompanionSpecies,
+		AutoMemoryPrompt:   opts.AutoMemoryPrompt,
+		TeamMemoryEnabled:  opts.TeamMemoryEnabled,
 	})
 
 	// Map prompt parts to engine.SystemPromptPart slices.

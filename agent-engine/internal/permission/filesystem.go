@@ -17,6 +17,11 @@ type FilesystemPermissionChecker struct {
 	WorkDir string
 }
 
+// AddPermittedDir appends a directory to the permitted directories list.
+func (c *FilesystemPermissionChecker) AddPermittedDir(dir string) {
+	c.PermittedDirs = append(c.PermittedDirs, dir)
+}
+
 // CheckWritePermission returns an error if writing to path is not permitted.
 func (c *FilesystemPermissionChecker) CheckWritePermission(path string) error {
 	clean, err := c.resolvePath(path)

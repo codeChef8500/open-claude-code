@@ -85,7 +85,7 @@ var expectedCommands = map[string]CommandType{
 	"tasks":  CommandTypeInteractive,
 
 	// Misc (commands_misc.go)
-	"add-dir":          CommandTypeInteractive,
+	"add-dir":          CommandTypeLocal,
 	"hooks":            CommandTypeInteractive,
 	"feedback":         CommandTypeInteractive,
 	"stats":            CommandTypeInteractive,

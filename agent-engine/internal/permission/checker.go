@@ -56,6 +56,9 @@ func (c *Checker) SetClassifier(cl Classifier) { c.classifier = cl }
 // SetHookFn sets the hook callback for permission checks.
 func (c *Checker) SetHookFn(fn HookFn) { c.hookFn = fn }
 
+// AddAllowedDir appends a directory to the allowed directories list.
+func (c *Checker) AddAllowedDir(dir string) { c.allowedDirs = append(c.allowedDirs, dir) }
+
 // DenialTracking returns the current denial tracking state.
 func (c *Checker) DenialTracking() DenialTrackingState { return c.denialTracking }
 

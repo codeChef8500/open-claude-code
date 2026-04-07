@@ -79,10 +79,11 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) (*BootstrapResult, erro
 	permStore := permission.NewPermissionStore(permStorePath)
 	_ = permStore.Load()
 	allow, deny := permStore.ToRules()
+	allowedDirs := append([]string{workDir}, appCfg.AllowedDirs...)
 	checker := permission.NewChecker(
 		permission.Mode(appCfg.PermissionMode),
 		allow, deny,
-		appCfg.AllowedDirs,
+		allowedDirs,
 		appCfg.DeniedCommands,
 	)
 	result.Checker = checker
@@ -107,9 +108,16 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) (*BootstrapResult, erro
 		memContent = memInjection.MergedContent()
 	}
 
+	// Load auto-memory prompt when enabled.
+	autoMemPrompt := ""
+	if memory.IsAutoMemoryEnabled() {
+		autoMemPrompt = memory.LoadMemoryPrompt(workDir, false, nil)
+	}
+
 	sysPrompt := prompt.BuildEffectiveSystemPrompt(prompt.BuildOptions{
-		WorkDir:       workDir,
-		MemoryContent: memContent,
+		WorkDir:          workDir,
+		MemoryContent:    memContent,
+		AutoMemoryPrompt: autoMemPrompt,
 	})
 	result.SystemPrompt = sysPrompt
 
@@ -138,7 +146,7 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) (*BootstrapResult, erro
 	eng.SetMemoryLoader(memory.NewAdapter())
 	eng.SetSessionWriter(NewAdapter())
 	eng.SetPromptBuilder(prompt.NewAdapter())
-	eng.SetPermissionChecker(permission.NewAdapter())
+	eng.SetPermissionChecker(permission.NewAdapterWithChecker(checker))
 
 	// ── 6. Command executor ────────────────────────────────────────────────
 	cmdExec := command.NewExecutor(command.Default())

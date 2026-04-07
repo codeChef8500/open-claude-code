@@ -428,9 +428,19 @@ func TestRewindPanel(t *testing.T) {
 }
 
 func TestAddDirWithPath(t *testing.T) {
-	r := execInteractive(t, "add-dir", []string{"/some/path"}, newTestEctx())
-	if r.Component != "add-dir" {
-		t.Errorf("expected component 'add-dir', got %q", r.Component)
+	ectx := newTestEctx()
+	// /add-dir is now a LocalCommand; test with a non-existent path.
+	result := execLocal(t, "add-dir", []string{"/some/nonexistent/path"}, ectx)
+	if result == "" {
+		t.Error("expected non-empty result from /add-dir")
+	}
+}
+
+func TestAddDirNoArgs(t *testing.T) {
+	ectx := newTestEctx()
+	result := execLocal(t, "add-dir", nil, ectx)
+	if !strings.Contains(result, "Usage:") {
+		t.Errorf("expected usage hint, got %q", result)
 	}
 }
 

@@ -275,23 +275,11 @@ func TestBranchDataShape(t *testing.T) {
 	}
 }
 
-// TestAddDirDataShape verifies /add-dir passes path.
+// TestAddDirDataShape verifies /add-dir returns text output (now LocalCommand).
 func TestAddDirDataShape(t *testing.T) {
-	r := execInteractive(t, "add-dir", []string{"/home/user/project"}, newTestEctx())
-	if r.Data == nil {
-		t.Fatal("/add-dir should have Data")
-	}
-
-	bs, _ := json.Marshal(r.Data)
-	var m map[string]interface{}
-	json.Unmarshal(bs, &m)
-
-	if path, ok := m["path"]; ok {
-		if path != "/home/user/project" {
-			t.Errorf("add-dir path should be '/home/user/project', got %v", path)
-		}
-	} else {
-		t.Error("/add-dir Data should have 'path'")
+	result := execLocal(t, "add-dir", []string{"/home/user/project"}, newTestEctx())
+	if result == "" {
+		t.Fatal("/add-dir should return non-empty output")
 	}
 }
 

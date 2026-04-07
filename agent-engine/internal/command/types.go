@@ -326,6 +326,10 @@ type ExecContext struct {
 	// ActiveMCPServers lists connected MCP server names.
 	ActiveMCPServers []string
 
+	// AddWorkingDir is a callback to add a directory to the session's
+	// permitted working directories (used by /add-dir).
+	AddWorkingDir func(dir string) error
+
 	// ── Extended fields (aligned with LocalJSXCommandContext from TS) ────
 
 	// EffortLevel is the current effort setting ("low","medium","high","max","auto").

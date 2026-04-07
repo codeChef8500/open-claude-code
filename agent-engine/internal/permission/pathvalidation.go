@@ -32,6 +32,9 @@ func NewPathValidator(workDir string, additionalDirs []string) *PathValidator {
 // SetResolveSymlinks controls whether symlinks are resolved during validation.
 func (pv *PathValidator) SetResolveSymlinks(v bool) { pv.resolveSymlinks = v }
 
+// AddDir appends a directory to the additional permitted directories.
+func (pv *PathValidator) AddDir(dir string) { pv.additionalDirs = append(pv.additionalDirs, dir) }
+
 // ValidatePath checks whether a path is safe and within permitted boundaries.
 // Returns the normalized absolute path and any validation error.
 func (pv *PathValidator) ValidatePath(path string, write bool) (string, error) {

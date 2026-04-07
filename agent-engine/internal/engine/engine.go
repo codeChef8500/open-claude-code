@@ -71,6 +71,11 @@ func (e *Engine) SessionID() string { return e.session.SessionID() }
 // WorkDir returns the working directory for this engine session.
 func (e *Engine) WorkDir() string { return e.cfg.WorkDir }
 
+// AddWorkingDir appends a directory to the engine's additional working directories.
+func (e *Engine) AddWorkingDir(dir string) {
+	e.cfg.AdditionalWorkingDirs = append(e.cfg.AdditionalWorkingDirs, dir)
+}
+
 // SetMemoryLoader installs a MemoryLoader (e.g. the memory package adapter).
 func (e *Engine) SetMemoryLoader(ml MemoryLoader) { e.memoryLoader = ml }
 
@@ -245,6 +250,12 @@ func (e *Engine) buildExecContext() *command.ExecContext {
 				ectx.CostUSD = c
 			}
 		}
+	}
+
+	// Wire AddWorkingDir callback.
+	ectx.AddWorkingDir = func(dir string) error {
+		e.AddWorkingDir(dir)
+		return nil
 	}
 
 	return ectx

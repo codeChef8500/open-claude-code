@@ -341,6 +341,16 @@ func (r *Runner) buildExecContext() *command.ExecContext {
 			}
 		}
 	}
+
+	// Wire AddWorkingDir callback: updates engine config + permission checker.
+	ectx.AddWorkingDir = func(dir string) error {
+		eng.AddWorkingDir(dir)
+		if r.result.Checker != nil {
+			r.result.Checker.AddAllowedDir(dir)
+		}
+		return nil
+	}
+
 	return ectx
 }
 

@@ -43,6 +43,8 @@ type SystemPromptOptions struct {
 	BuddyActive        bool   // inject companion intro into system prompt
 	CompanionName      string // companion name (for intro text)
 	CompanionSpecies   string // companion species (for intro text)
+	AutoMemoryPrompt   string // auto-memory prompt (replaces MemoryContent when set)
+	TeamMemoryEnabled  bool   // team memory is active
 }
 
 // PermissionVerdict is the outcome of a global permission check.

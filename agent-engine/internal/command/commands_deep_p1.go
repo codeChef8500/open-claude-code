@@ -459,48 +459,47 @@ type AddDirViewData struct {
 }
 
 // DeepAddDirCommand replaces the basic AddDirCommand.
+// Converted to LocalCommand so it actually adds the directory (aligned with
+// claude-code-main commands/add-dir/add-dir.tsx).
 type DeepAddDirCommand struct{ BaseCommand }
 
 func (c *DeepAddDirCommand) Name() string                  { return "add-dir" }
 func (c *DeepAddDirCommand) Description() string           { return "Add a new working directory" }
 func (c *DeepAddDirCommand) ArgumentHint() string          { return "<path>" }
-func (c *DeepAddDirCommand) Type() CommandType             { return CommandTypeInteractive }
+func (c *DeepAddDirCommand) Type() CommandType             { return CommandTypeLocal }
 func (c *DeepAddDirCommand) IsEnabled(_ *ExecContext) bool { return true }
 
-func (c *DeepAddDirCommand) ExecuteInteractive(_ context.Context, args []string, ectx *ExecContext) (*InteractiveResult, error) {
-	data := &AddDirViewData{}
+func (c *DeepAddDirCommand) Execute(_ context.Context, args []string, ectx *ExecContext) (string, error) {
+	if len(args) == 0 {
+		return "Usage: /add-dir <path>\nAdd a directory to the session's permitted working directories.", nil
+	}
 
-	if len(args) > 0 {
-		data.Path = strings.Join(args, " ")
+	rawPath := strings.Join(args, " ")
 
-		// Resolve the path.
-		resolved := data.Path
-		if !filepath.IsAbs(resolved) && ectx != nil {
-			resolved = filepath.Join(ectx.WorkDir, resolved)
-		}
-		resolved = filepath.Clean(resolved)
-		data.ResolvedPath = resolved
+	// Resolve the path.
+	resolved := rawPath
+	if !filepath.IsAbs(resolved) && ectx != nil {
+		resolved = filepath.Join(ectx.WorkDir, resolved)
+	}
+	resolved = filepath.Clean(resolved)
 
-		// Validate the path is a directory.
-		info, err := os.Stat(resolved)
-		if err != nil {
-			data.Error = fmt.Sprintf("Path does not exist: %s", resolved)
-		} else if !info.IsDir() {
-			data.Error = fmt.Sprintf("Not a directory: %s", resolved)
-		} else {
-			data.IsValid = true
+	// Validate the path is a directory.
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return fmt.Sprintf("Path does not exist: %s", resolved), nil
+	}
+	if !info.IsDir() {
+		return fmt.Sprintf("Not a directory: %s", resolved), nil
+	}
+
+	// Add the directory via the callback.
+	if ectx != nil && ectx.AddWorkingDir != nil {
+		if err := ectx.AddWorkingDir(resolved); err != nil {
+			return fmt.Sprintf("Failed to add directory: %v", err), nil
 		}
 	}
 
-	// Report current workspace dirs.
-	if ectx != nil {
-		data.CurrentDirs = append(data.CurrentDirs, ectx.WorkDir)
-	}
-
-	return &InteractiveResult{
-		Component: "add-dir",
-		Data:      data,
-	}, nil
+	return fmt.Sprintf("Added %s as a working directory for this session · /permissions to manage", resolved), nil
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

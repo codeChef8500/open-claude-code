@@ -33,6 +33,8 @@ type BuildOptions struct {
 	BuddyActive        bool   // inject companion intro into system prompt
 	CompanionName      string // companion name (for intro text)
 	CompanionSpecies   string // companion species (for intro text)
+	AutoMemoryPrompt   string // auto-memory system prompt (overrides MemoryContent)
+	TeamMemoryEnabled  bool   // team memory is active
 }
 
 // BuiltSystemPrompt is the result of BuildEffectiveSystemPrompt.
@@ -101,10 +103,14 @@ func BuildEffectiveSystemPrompt(opts BuildOptions) *BuiltSystemPrompt {
 		}
 	}
 
-	// Layer 3 – memory content
-	if opts.MemoryContent != "" {
+	// Layer 3 – memory content (auto-memory prompt takes precedence)
+	memContent := opts.MemoryContent
+	if opts.AutoMemoryPrompt != "" {
+		memContent = opts.AutoMemoryPrompt
+	}
+	if memContent != "" {
 		parts = append(parts, PromptPart{
-			Content: opts.MemoryContent,
+			Content: memContent,
 			Order:   CacheOrderMemories,
 		})
 	}
