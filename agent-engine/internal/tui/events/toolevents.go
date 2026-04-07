@@ -64,9 +64,10 @@ func (b *EnhancedBridge) DrainChannel(ch <-chan *engine.StreamEvent) {
 			})
 		case engine.EventToolResult:
 			b.program.Send(tui.ToolDoneMsg{
-				ToolID:  ev.ToolID,
-				Output:  ev.Text,
-				IsError: ev.IsError,
+				ToolID:   ev.ToolID,
+				ToolName: ev.ToolName,
+				Output:   ev.Text,
+				IsError:  ev.IsError,
 			})
 		case engine.EventUsage:
 			if ev.Usage != nil {

@@ -2,9 +2,25 @@ package spinnerv2
 
 import "math/rand"
 
+// Lang represents the display language for spinner verbs.
+type Lang int
+
+const (
+	LangCN Lang = iota // 简体中文（默认）
+	LangEN             // English
+)
+
+var currentLang = LangCN
+
+// SetLang sets the global spinner verb language.
+func SetLang(l Lang) { currentLang = l }
+
+// GetLang returns the current spinner verb language.
+func GetLang() Lang { return currentLang }
+
 // SpinnerVerbs is the full list of loading verbs, matching claude-code-main's
 // spinnerVerbs.ts exactly.
-var SpinnerVerbs = []string{
+var SpinnerVerbsEN = []string{
 	"Accomplishing",
 	"Actioning",
 	"Actualizing",
@@ -194,7 +210,116 @@ var SpinnerVerbs = []string{
 	"Zigzagging",
 }
 
-// RandomVerb returns a random spinner verb.
+// SpinnerVerbsCN is the Chinese spinner verb list.
+var SpinnerVerbsCN = []string{
+	"思考中",
+	"计算中",
+	"推理中",
+	"分析中",
+	"运算中",
+	"解析中",
+	"生成中",
+	"处理中",
+	"构建中",
+	"优化中",
+	"整合中",
+	"编译中",
+	"调试中",
+	"推进中",
+	"规划中",
+	"策划中",
+	"编排中",
+	"调度中",
+	"联结中",
+	"转化中",
+	"酝酿中",
+	"炖煮中",
+	"发酵中",
+	"调配中",
+	"烘焙中",
+	"腌制中",
+	"熬制中",
+	"翻炒中",
+	"蒸腾中",
+	"醒发中",
+	"漫游中",
+	"探索中",
+	"流淌中",
+	"涌动中",
+	"蔓延中",
+	"穿越中",
+	"游历中",
+	"徜徉中",
+	"萌芽中",
+	"孵化中",
+	"凝思中",
+	"沉思中",
+	"冥想中",
+	"推敲中",
+	"筹谋中",
+	"演绎中",
+	"归纳中",
+	"洞察中",
+	"领悟中",
+	"升华中",
+	"折腾中",
+	"摸鱼中",
+	"施法中",
+	"念咒中",
+	"炼丹中",
+	"脑洞大开",
+	"灵感迸发",
+	"奇思妙想",
+	"天马行空",
+	"异想天开",
+	"编织中",
+	"闪烁中",
+	"共鸣中",
+	"构思中",
+	"描绘中",
+	"勾勒中",
+	"雕琢中",
+	"打磨中",
+	"淬炼中",
+	"铸造中",
+	"旋转中",
+	"飘动中",
+	"律动中",
+	"涌现中",
+	"迸发中",
+	"奔腾中",
+	"舞动中",
+	"跃动中",
+	"振动中",
+	"共振中",
+	"量子纠缠中",
+	"深度思考中",
+	"语义解析中",
+	"模式识别中",
+	"知识融合中",
+	"概率计算中",
+	"逻辑推演中",
+	"智慧涌现中",
+	"意识流动中",
+	"神经网络中",
+	"灵光闪现中",
+	"举一反三中",
+	"融会贯通中",
+	"精雕细琢中",
+	"集思广益中",
+	"全力以赴中",
+	"挑灯夜战中",
+	"开足马力中",
+	"妙手偶得中",
+	"运筹帷幄中",
+}
+
+// RandomVerb returns a random spinner verb in the current language.
 func RandomVerb() string {
-	return SpinnerVerbs[rand.Intn(len(SpinnerVerbs))]
+	switch currentLang {
+	case LangEN:
+		return SpinnerVerbsEN[rand.Intn(len(SpinnerVerbsEN))]
+	default: // LangCN
+		return SpinnerVerbsCN[rand.Intn(len(SpinnerVerbsCN))]
+	}
 }

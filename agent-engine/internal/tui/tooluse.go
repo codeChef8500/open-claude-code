@@ -21,6 +21,15 @@ type ToolUseState struct {
 	StartTime time.Time
 	EndTime   time.Time
 	Done      bool
+
+	// Streaming progress data (updated by EventToolProgress)
+	BashLines   int    // Bash: total output lines so far
+	BashBytes   int64  // Bash: total output bytes so far
+	SearchQuery string // WebSearch: query text
+	SearchHits  int    // WebSearch: results received so far
+	FetchPhase  string // WebFetch: "connecting", "downloading", "processing"
+	FetchBytes  int    // WebFetch: bytes read so far
+	FetchStatus int    // WebFetch: HTTP status code
 }
 
 // Duration returns the elapsed time for this tool call.
@@ -56,6 +65,54 @@ func (t *ToolUseTracker) StartTool(id, name, input string) {
 	}
 }
 
+// UpdateProgress updates streaming progress for an active tool call.
+func (t *ToolUseTracker) UpdateProgress(id string, progressType string, data map[string]interface{}) {
+	state, ok := t.active[id]
+	if !ok {
+		return
+	}
+	switch progressType {
+	case "bash":
+		if v, ok := data["output_lines"]; ok {
+			if n, ok := v.(float64); ok {
+				state.BashLines = int(n)
+			}
+		}
+		if v, ok := data["output_bytes"]; ok {
+			if n, ok := v.(float64); ok {
+				state.BashBytes = int64(n)
+			}
+		}
+	case "web_search":
+		if v, ok := data["query"]; ok {
+			if s, ok := v.(string); ok {
+				state.SearchQuery = s
+			}
+		}
+		if v, ok := data["results_received"]; ok {
+			if n, ok := v.(float64); ok {
+				state.SearchHits = int(n)
+			}
+		}
+	case "web_fetch":
+		if v, ok := data["phase"]; ok {
+			if s, ok := v.(string); ok {
+				state.FetchPhase = s
+			}
+		}
+		if v, ok := data["bytes_read"]; ok {
+			if n, ok := v.(float64); ok {
+				state.FetchBytes = int(n)
+			}
+		}
+		if v, ok := data["status_code"]; ok {
+			if n, ok := v.(float64); ok {
+				state.FetchStatus = int(n)
+			}
+		}
+	}
+}
+
 // FinishTool marks a tool call as completed.
 func (t *ToolUseTracker) FinishTool(id, output string, isError bool) {
 	if state, ok := t.active[id]; ok {
@@ -78,38 +135,88 @@ func (t *ToolUseTracker) ActiveCount() int {
 	return len(t.active)
 }
 
-// RenderActive renders the active tool calls using claude-code-main format:
+// RenderActive renders the active tool calls using enhanced per-tool renderers:
 //
-//	● ToolName (params)
-//	  ⎿  Running…
+//	● Bash ($ git status)
+//	  ⎿  Running… 12 lines · 3.2KB · 5s
 func (t *ToolUseTracker) RenderActive() string {
 	if len(t.active) == 0 {
 		return ""
 	}
 
 	theme := t.buildToolUITheme()
+	dotStyle := lipgloss.NewStyle().Foreground(t.styles.ToolUse.GetForeground())
+	dot := dotStyle.Render(figures.BlackCircle()) + " "
 
 	var lines []string
 	for _, s := range t.active {
-		// Blinking dot for active state
-		dotStyle := lipgloss.NewStyle().Foreground(t.styles.ToolUse.GetForeground())
-		dot := dotStyle.Render(figures.BlackCircle()) + " "
+		elapsed := s.Duration()
 
-		header := toolui.RenderToolHeader(dot, s.ToolName, s.Input, theme)
-
-		elapsed := s.Duration().Round(time.Millisecond)
-		running := t.styles.Dimmed.Render(fmt.Sprintf("Running… (%s)", elapsed))
-		result := toolui.RenderResponseLine(running, theme)
-
-		lines = append(lines, header+"\n"+result)
+		switch s.ToolName {
+		case "Bash", "bash":
+			ui := toolui.NewBashToolUI(theme)
+			// Use streaming progress data if available.
+			if s.BashLines > 0 || s.BashBytes > 0 {
+				progress := toolui.BashProgress{
+					Output:     s.Output,
+					ElapsedSec: elapsed.Seconds(),
+					TotalLines: s.BashLines,
+					TotalBytes: s.BashBytes,
+				}
+				header := ui.RenderStart(dot, s.Input, false)
+				progressLine := ui.RenderProgress(progress)
+				lines = append(lines, header+"\n"+progressLine)
+			} else if s.Output != "" {
+				outLines := strings.Split(s.Output, "\n")
+				lines = append(lines, ui.RenderStreamingWithOutput(dot, s.Input, outLines, elapsed, 100))
+			} else {
+				lines = append(lines, ui.RenderStreaming(dot, s.Input, elapsed))
+			}
+		case "Edit", "edit":
+			ui := toolui.NewEditToolUI(theme)
+			header := ui.RenderStart(dot, "Update", s.Input, false)
+			running := toolui.RenderResponseLine(t.styles.Dimmed.Render("Applying…"), theme)
+			lines = append(lines, header+"\n"+running)
+		case "WebSearch", "web_search":
+			ui := toolui.NewWebSearchToolUI(theme)
+			query := s.SearchQuery
+			if query == "" {
+				query = s.Input
+			}
+			header := ui.RenderStart(dot, query)
+			var progress string
+			if s.SearchHits > 0 {
+				progress = toolui.RenderResponseLine(
+					t.styles.Dimmed.Render(fmt.Sprintf("Found %d results (%s)", s.SearchHits, elapsed.Round(time.Millisecond))),
+					theme)
+			} else {
+				progress = ui.RenderProgress(query)
+			}
+			lines = append(lines, header+"\n"+progress)
+		case "WebFetch", "web_fetch":
+			ui := toolui.NewWebFetchToolUI(theme)
+			header := ui.RenderStart(dot, s.Input)
+			var progress string
+			if s.FetchPhase != "" {
+				progress = ui.RenderProgressPhase(s.FetchPhase, s.FetchBytes, s.FetchStatus)
+			} else {
+				progress = ui.RenderProgress()
+			}
+			lines = append(lines, header+"\n"+progress)
+		default:
+			header := toolui.RenderToolHeader(dot, s.ToolName, s.Input, theme)
+			running := t.styles.Dimmed.Render(fmt.Sprintf("Running… (%s)", elapsed.Round(time.Millisecond)))
+			result := toolui.RenderResponseLine(running, theme)
+			lines = append(lines, header+"\n"+result)
+		}
 	}
 	return strings.Join(lines, "\n")
 }
 
-// RenderCompleted renders the last N completed tool calls using claude-code format:
+// RenderCompleted renders the last N completed tool calls using enhanced per-tool renderers:
 //
-//	● ToolName (params)
-//	  ⎿  Done (123ms)
+//	● Bash ($ git status)
+//	  ⎿  Ran (123ms)
 func (t *ToolUseTracker) RenderCompleted(n int) string {
 	if len(t.completed) == 0 {
 		return ""
@@ -123,7 +230,6 @@ func (t *ToolUseTracker) RenderCompleted(n int) string {
 
 	var lines []string
 	for _, s := range t.completed[start:] {
-		// Green dot for success, red for error
 		var dotColor lipgloss.TerminalColor
 		if s.IsError {
 			dotColor = t.styles.Error.GetForeground()
@@ -132,19 +238,41 @@ func (t *ToolUseTracker) RenderCompleted(n int) string {
 		}
 		dotStyle := lipgloss.NewStyle().Foreground(dotColor)
 		dot := dotStyle.Render(figures.BlackCircle()) + " "
+		elapsed := s.Duration()
 
-		header := toolui.RenderToolHeader(dot, s.ToolName, s.Input, theme)
-
-		elapsed := s.Duration().Round(time.Millisecond)
-		var resultMsg string
-		if s.IsError {
-			resultMsg = t.styles.Error.Render(fmt.Sprintf("Error (%s)", elapsed))
-		} else {
-			resultMsg = t.styles.Dimmed.Render(fmt.Sprintf("Done (%s)", elapsed))
+		switch s.ToolName {
+		case "Bash", "bash":
+			ui := toolui.NewBashToolUI(theme)
+			header := ui.RenderStart(dot, s.Input, false)
+			result := ui.RenderResult(s.Output, 0, elapsed, 100)
+			lines = append(lines, header+"\n"+result)
+		case "Edit", "edit":
+			ui := toolui.NewEditToolUI(theme)
+			header := ui.RenderStart(dot, "Update", s.Input, false)
+			result := ui.RenderResultSimple(!s.IsError, elapsed, 0)
+			lines = append(lines, header+"\n"+result)
+		case "Write", "write":
+			ui := toolui.NewWriteToolUI(theme)
+			header := ui.RenderStart(dot, s.Input, false)
+			result := ui.RenderResult(!s.IsError, elapsed)
+			lines = append(lines, header+"\n"+result)
+		case "Read", "read":
+			ui := toolui.NewReadToolUI(theme)
+			header := ui.RenderStart(dot, s.Input, "", false)
+			lineCount := strings.Count(s.Output, "\n")
+			result := ui.RenderResult(s.Output, lineCount, elapsed, 100, false)
+			lines = append(lines, header+"\n"+result)
+		default:
+			header := toolui.RenderToolHeader(dot, s.ToolName, s.Input, theme)
+			var resultMsg string
+			if s.IsError {
+				resultMsg = t.styles.Error.Render(fmt.Sprintf("Error (%s)", elapsed.Round(time.Millisecond)))
+			} else {
+				resultMsg = t.styles.Dimmed.Render(fmt.Sprintf("Done (%s)", elapsed.Round(time.Millisecond)))
+			}
+			result := toolui.RenderResponseLine(resultMsg, theme)
+			lines = append(lines, header+"\n"+result)
 		}
-		result := toolui.RenderResponseLine(resultMsg, theme)
-
-		lines = append(lines, header+"\n"+result)
 	}
 	return strings.Join(lines, "\n")
 }

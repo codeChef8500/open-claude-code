@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -24,7 +25,8 @@ type Runner struct {
 	// Callbacks for UI integration.
 	OnTextDelta    func(text string)
 	OnToolStart    func(id, name, input string)
-	OnToolDone     func(id, output string, isError bool)
+	OnToolDone     func(id, name, output string, isError bool)
+	OnToolProgress func(id, name, content string)
 	OnDone         func()
 	OnError        func(err error)
 	OnSystem       func(text string)
@@ -47,7 +49,8 @@ func NewRunner(result *BootstrapResult) *Runner {
 		result:              result,
 		OnTextDelta:         func(string) {},
 		OnToolStart:         func(string, string, string) {},
-		OnToolDone:          func(string, string, bool) {},
+		OnToolDone:          func(string, string, string, bool) {},
+		OnToolProgress:      func(string, string, string) {},
 		OnDone:              func() {},
 		OnError:             func(error) {},
 		OnSystem:            func(string) {},
@@ -419,7 +422,9 @@ func (r *Runner) handleMessage(ctx context.Context, text string) {
 		case engine.EventToolUse:
 			inputStr := ""
 			if ev.ToolInput != nil {
-				inputStr = fmt.Sprintf("%v", ev.ToolInput)
+				if data, err := json.Marshal(ev.ToolInput); err == nil {
+					inputStr = string(data)
+				}
 			}
 			r.OnToolStart(ev.ToolID, ev.ToolName, inputStr)
 			r.result.SessionTracker.RecordToolCall(ev.ToolName, false)
@@ -427,8 +432,15 @@ func (r *Runner) handleMessage(ctx context.Context, text string) {
 				r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventToolStart, ToolName: ev.ToolName})
 			}
 
+		case engine.EventToolProgress:
+			content := ""
+			if ev.Progress != nil {
+				content = ev.Progress.Content
+			}
+			r.OnToolProgress(ev.ToolID, ev.ToolName, content)
+
 		case engine.EventToolResult:
-			r.OnToolDone(ev.ToolID, ev.Text, ev.IsError)
+			r.OnToolDone(ev.ToolID, ev.ToolName, ev.Text, ev.IsError)
 			if ev.IsError {
 				r.result.SessionTracker.RecordToolCall("", true)
 			}

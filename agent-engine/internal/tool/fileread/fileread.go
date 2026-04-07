@@ -466,6 +466,15 @@ func readNotebookFile(path string) (string, error) {
 	return sb.String(), nil
 }
 
+// MapToolResultToBlockParam formats the read result for the model.
+func (t *FileReadTool) MapToolResultToBlockParam(content interface{}, toolUseID string) *engine.ContentBlock {
+	text, ok := content.(string)
+	if !ok {
+		return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: ""}
+	}
+	return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: text}
+}
+
 // decodeNotebookStrOrArray handles ipynb source/text which can be a string or []string.
 func decodeNotebookStrOrArray(raw json.RawMessage) string {
 	if len(raw) == 0 {

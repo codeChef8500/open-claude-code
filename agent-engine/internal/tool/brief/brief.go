@@ -139,6 +139,15 @@ func (t *BriefTool) Call(_ context.Context, input json.RawMessage, uctx *tool.Us
 	return ch, nil
 }
 
+// MapToolResultToBlockParam returns the message with attachment count metadata.
+func (t *BriefTool) MapToolResultToBlockParam(content interface{}, toolUseID string) *engine.ContentBlock {
+	text, ok := content.(string)
+	if !ok {
+		return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: ""}
+	}
+	return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: text}
+}
+
 // ─── Attachment helpers ─────────────────────────────────────────────────────
 
 var imageExtensions = map[string]bool{

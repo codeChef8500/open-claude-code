@@ -205,3 +205,12 @@ func (t *FileWriteTool) Call(_ context.Context, input json.RawMessage, uctx *too
 	}()
 	return ch, nil
 }
+
+// MapToolResultToBlockParam formats the write result for the model.
+func (t *FileWriteTool) MapToolResultToBlockParam(content interface{}, toolUseID string) *engine.ContentBlock {
+	text, ok := content.(string)
+	if !ok {
+		return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: ""}
+	}
+	return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: text}
+}

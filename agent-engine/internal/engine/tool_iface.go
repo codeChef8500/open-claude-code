@@ -161,7 +161,12 @@ type UseContext struct {
 	AppendSystemMessage func(msg *Message)
 	SetToolJSX          func(toolUseID string, jsx interface{})
 
-	// ── Abort / cancellation ────────────────────────────────────────────
+	// ── Progress reporting ──────────────────────────────────────────
+	// OnToolProgress, if non-nil, is called by tools to emit incremental
+	// progress events (e.g. bash output lines, web search progress).
+	OnToolProgress func(progress *ProgressData)
+
+	// ── Abort / cancellation ────────────────────────────────────────
 	AbortCh <-chan struct{} // closed when the query is cancelled
 
 	// ── File state cache (LRU for file contents read by tools) ─────────

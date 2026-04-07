@@ -26,12 +26,30 @@ type Input struct {
 	ReplaceAll bool   `json:"replace_all,omitempty"`
 }
 
+// StructuredPatchHunk represents a single diff hunk, matching claude-code-main's format.
+type StructuredPatchHunk struct {
+	OldStart int      `json:"oldStart"`
+	OldLines int      `json:"oldLines"`
+	NewStart int      `json:"newStart"`
+	NewLines int      `json:"newLines"`
+	Lines    []string `json:"lines"`
+}
+
+// Output is the structured output of a FileEdit call.
+type Output struct {
+	FilePath        string                `json:"filePath"`
+	OldString       string                `json:"oldString"`
+	NewString       string                `json:"newString"`
+	OriginalFile    string                `json:"originalFile"`
+	StructuredPatch []StructuredPatchHunk `json:"structuredPatch"`
+	ReplaceAll      bool                  `json:"replaceAll"`
+}
+
 type FileEditTool struct{ tool.BaseTool }
 
 func New() *FileEditTool { return &FileEditTool{} }
 
 func (t *FileEditTool) Name() string                             { return "Edit" }
-func (t *FileEditTool) UserFacingName() string                   { return "edit" }
 func (t *FileEditTool) Description() string                      { return "Replace an exact string in a file." }
 func (t *FileEditTool) IsReadOnly(_ json.RawMessage) bool        { return false }
 func (t *FileEditTool) IsConcurrencySafe(_ json.RawMessage) bool { return false }
@@ -46,6 +64,27 @@ func (t *FileEditTool) GetPath(input json.RawMessage) string {
 	}
 	return in.FilePath
 }
+
+func (t *FileEditTool) UserFacingName() string { return "Update" }
+
+// DynamicUserFacingName returns "Create" when old_string is empty (new file), "Update" otherwise.
+// Used by the TUI to show contextual tool names matching claude-code-main behavior.
+func DynamicUserFacingName(input json.RawMessage) string {
+	var in Input
+	if json.Unmarshal(input, &in) == nil && in.OldString == "" {
+		return "Create"
+	}
+	return "Update"
+}
+
+// DynamicUserFacingNameFromInput returns the dynamic name based on parsed input.
+func DynamicUserFacingNameFromInput(input Input) string {
+	if input.OldString == "" {
+		return "Create"
+	}
+	return "Update"
+}
+
 func (t *FileEditTool) GetActivityDescription(input json.RawMessage) string {
 	if p := t.GetPath(input); p != "" {
 		return "Editing " + p
@@ -87,10 +126,12 @@ func (t *FileEditTool) OutputSchema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"result": {"type": "string", "description": "Success message or snippet of the edited region."},
-			"file_path": {"type": "string", "description": "Absolute path of the edited file."},
-			"old_string": {"type": "string", "description": "The text that was replaced."},
-			"new_string": {"type": "string", "description": "The text that replaced old_string."}
+			"filePath": {"type": "string", "description": "The file path that was edited."},
+			"oldString": {"type": "string", "description": "The original string that was replaced."},
+			"newString": {"type": "string", "description": "The new string that replaced it."},
+			"originalFile": {"type": "string", "description": "The original file contents before editing."},
+			"structuredPatch": {"type": "array", "items": {"type": "object", "properties": {"oldStart":{"type":"integer"}, "oldLines":{"type":"integer"}, "newStart":{"type":"integer"}, "newLines":{"type":"integer"}, "lines":{"type":"array","items":{"type":"string"}}}}, "description": "Diff patch showing the changes."},
+			"replaceAll": {"type": "boolean", "description": "Whether all occurrences were replaced."}
 		}
 	}`)
 }
@@ -243,11 +284,23 @@ func (t *FileEditTool) Call(_ context.Context, input json.RawMessage, uctx *tool
 
 		// Compute diff for result.
 		d := diff.Compute(text, newText, path)
+		hunks := computeHunks(text, newText)
+
 		var result string
 		if in.ReplaceAll && replacements > 1 {
 			result = fmt.Sprintf("Successfully replaced %d occurrences in %s\n%s", replacements, path, d.Format())
 		} else {
 			result = fmt.Sprintf("Successfully edited %s\n%s", path, d.Format())
+		}
+
+		// Build structured output (available for downstream consumers).
+		_ = Output{
+			FilePath:        in.FilePath,
+			OldString:       in.OldString,
+			NewString:       in.NewString,
+			OriginalFile:    text,
+			StructuredPatch: hunks,
+			ReplaceAll:      in.ReplaceAll,
 		}
 
 		ch <- &engine.ContentBlock{
@@ -297,6 +350,43 @@ func normalizeWhitespace(s string) string {
 		}
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// computeHunks produces StructuredPatchHunk slices from old/new content,
+// matching claude-code-main's structuredPatch format for the UI.
+func computeHunks(oldContent, newContent string) []StructuredPatchHunk {
+	d := diff.Compute(oldContent, newContent, "")
+	hunks := make([]StructuredPatchHunk, 0, len(d.Hunks))
+	for _, h := range d.Hunks {
+		lines := make([]string, 0, len(h.Lines))
+		for _, l := range h.Lines {
+			switch l.Op {
+			case diff.OpEqual:
+				lines = append(lines, " "+l.Content)
+			case diff.OpInsert:
+				lines = append(lines, "+"+l.Content)
+			case diff.OpDelete:
+				lines = append(lines, "-"+l.Content)
+			}
+		}
+		hunks = append(hunks, StructuredPatchHunk{
+			OldStart: h.OldStart,
+			OldLines: h.OldCount,
+			NewStart: h.NewStart,
+			NewLines: h.NewCount,
+			Lines:    lines,
+		})
+	}
+	return hunks
+}
+
+// MapToolResultToBlockParam formats the edit result for the model.
+func (t *FileEditTool) MapToolResultToBlockParam(content interface{}, toolUseID string) *engine.ContentBlock {
+	text, ok := content.(string)
+	if !ok {
+		return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: ""}
+	}
+	return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: text}
 }
 
 func errBlock(msg string) *engine.ContentBlock {

@@ -85,6 +85,9 @@ type AppState struct {
 	DaemonWorkerID        string // current daemon-worker epoch/identity (CCR)
 	MessagingSocketPath   string // UDS/Named Pipe path for IPC
 
+	// ── Todo list (session task tracking) ────────────────────────
+	TodoItems []TodoItemState `json:"todo_items,omitempty"` // live state for TUI rendering
+
 	// ── Buddy companion ──────────────────────────────────────────
 	BuddyEnabled      bool   // feature flag — controls entire companion system
 	CompanionReaction string // current speech bubble text (empty = hidden)
@@ -169,6 +172,16 @@ type TaskState struct {
 	AgentType   string `json:"agent_type,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
 	CompletedAt int64  `json:"completed_at,omitempty"`
+}
+
+// TodoItemState is the AppState representation of a todo item for TUI rendering.
+// Mirrors todo.TodoItem but lives in the state package to avoid import cycles.
+type TodoItemState struct {
+	ID         string `json:"id"`
+	Content    string `json:"content"`
+	Status     string `json:"status"`               // "pending" | "in_progress" | "completed"
+	Priority   string `json:"priority"`             // "high" | "medium" | "low"
+	ActiveForm string `json:"activeForm,omitempty"` // present continuous form for spinner
 }
 
 // FileHistoryStateRef is the AppState view of file history.

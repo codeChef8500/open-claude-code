@@ -79,6 +79,83 @@ func (e *EditToolUI) RenderResultSimple(success bool, elapsed time.Duration, lin
 	return RenderResponseLine(e.theme.Error.Render("Edit failed"), e.theme)
 }
 
+// RenderResultReplaceAll renders an edit result for replace_all with count.
+func (e *EditToolUI) RenderResultReplaceAll(elapsed time.Duration, replacements int) string {
+	msg := fmt.Sprintf("Applied (%s) — replaced %d occurrences", elapsed.Truncate(time.Millisecond), replacements)
+	return RenderResponseLine(e.theme.Dim.Render(msg), e.theme)
+}
+
+// EditHunk is the minimal data for rendering a structured patch hunk.
+type EditHunk struct {
+	OldStart int
+	NewStart int
+	Lines    []string // prefixed with " ", "+", or "-"
+}
+
+// RenderStructuredPatch renders structured patch hunks matching claude-code-main's
+// FileEditToolUpdatedMessage diff display.
+func (e *EditToolUI) RenderStructuredPatch(hunks []EditHunk, width int) string {
+	if len(hunks) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	maxHunks := 3
+	maxLinesPerHunk := 10
+
+	for hi, h := range hunks {
+		if hi >= maxHunks {
+			sb.WriteString("\n")
+			sb.WriteString(e.theme.Dim.Render(fmt.Sprintf("     … and %d more hunks", len(hunks)-maxHunks)))
+			break
+		}
+		if hi > 0 {
+			sb.WriteString("\n")
+		}
+		shown := 0
+		for _, line := range h.Lines {
+			if shown >= maxLinesPerHunk {
+				sb.WriteString("\n")
+				sb.WriteString(e.theme.Dim.Render(fmt.Sprintf("     … (%d more lines in hunk)", len(h.Lines)-maxLinesPerHunk)))
+				break
+			}
+			if shown > 0 {
+				sb.WriteString("\n")
+			}
+			if len(line) == 0 {
+				sb.WriteString("     ")
+				shown++
+				continue
+			}
+			prefix := line[0]
+			content := line[1:]
+			switch prefix {
+			case '+':
+				sb.WriteString(e.theme.DiffAdd.Render("     + "))
+				sb.WriteString(e.theme.DiffAdd.Render(truncateLine(content, width-8)))
+			case '-':
+				sb.WriteString(e.theme.DiffDel.Render("     - "))
+				sb.WriteString(e.theme.DiffDel.Render(truncateLine(content, width-8)))
+			default:
+				sb.WriteString("       ")
+				sb.WriteString(e.theme.Dim.Render(truncateLine(content, width-8)))
+			}
+			shown++
+		}
+	}
+	return sb.String()
+}
+
+// RenderRejected renders a rejected (permission-denied) edit.
+func (e *EditToolUI) RenderRejected(filePath string, isNewFile bool) string {
+	var msg string
+	if isNewFile {
+		msg = "File creation rejected"
+	} else {
+		msg = "Edit rejected"
+	}
+	return RenderResponseLine(e.theme.Error.Render(msg), e.theme)
+}
+
 // renderDiff creates a word-level diff view matching claude-code-main's
 // FileEditTool highlighting. Changed words get background color.
 func (e *EditToolUI) renderDiff(oldText, newText string, width int) string {

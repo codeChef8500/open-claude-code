@@ -213,52 +213,6 @@ func (g *GrepToolUI) RenderResult(matchCount, fileCount int, output string, elap
 	return sb.String()
 }
 
-// WebToolUI renders web fetch/search tool use.
-// Layout matches claude-code-main's WebFetchTool/WebSearchTool.
-type WebToolUI struct {
-	theme ToolUITheme
-}
-
-// NewWebToolUI creates a web tool renderer.
-func NewWebToolUI(theme ToolUITheme) *WebToolUI {
-	return &WebToolUI{theme: theme}
-}
-
-// RenderStart renders a web tool header line:
-//
-//	● WebSearch (query text)
-func (w *WebToolUI) RenderStart(dotView, toolName, query string) string {
-	return RenderToolHeader(dotView, toolName, query, w.theme)
-}
-
-// RenderResult renders a web tool result with ⎿ connector.
-func (w *WebToolUI) RenderResult(content string, elapsed time.Duration, width int) string {
-	var sb strings.Builder
-
-	msg := fmt.Sprintf("Done (%s)", elapsed.Truncate(time.Millisecond))
-	sb.WriteString(RenderResponseLine(w.theme.Dim.Render(msg), w.theme))
-
-	if content != "" {
-		lines := strings.Split(content, "\n")
-		maxShow := 5
-		show := lines
-		if len(show) > maxShow {
-			show = show[:maxShow]
-		}
-		for _, line := range show {
-			sb.WriteString("\n")
-			sb.WriteString(w.theme.TreeConn.Render("  │ "))
-			sb.WriteString(w.theme.Output.Render(truncateLine(line, width-6)))
-		}
-		if len(lines) > maxShow {
-			sb.WriteString("\n")
-			sb.WriteString(w.theme.Dim.Render(fmt.Sprintf("  │ … (%d more lines)", len(lines)-maxShow)))
-		}
-	}
-
-	return strings.TrimRight(sb.String(), "\n")
-}
-
 // shortenDir shortens a directory path for display.
 func shortenDir(dir string) string {
 	if len(dir) <= 40 {

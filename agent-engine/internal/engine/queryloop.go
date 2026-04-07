@@ -599,6 +599,7 @@ func executeToolCalls(
 				Type:     EventToolResult,
 				ToolID:   res.toolUseID,
 				ToolName: res.toolName,
+				Text:     blocksToString(res.blocks),
 				IsError:  res.isErr,
 			}
 			resultMsg.Content = append(resultMsg.Content, &ContentBlock{
@@ -627,6 +628,7 @@ func executeToolCalls(
 			Type:     EventToolResult,
 			ToolID:   res.toolUseID,
 			ToolName: res.toolName,
+			Text:     blocksToString(res.blocks),
 			IsError:  res.isErr,
 		}
 		resultMsg.Content = append(resultMsg.Content, &ContentBlock{

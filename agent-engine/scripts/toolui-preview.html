@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Agent Engine — ToolUI 样式预览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    color: #bcbcbc;
+    font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 32px;
+  }
+  h1 {
+    color: #00d4ff;
+    font-size: 22px;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+  }
+  h1 small { font-size: 13px; color: #585858; font-weight: normal; }
+  .subtitle { color: #585858; margin-bottom: 32px; font-size: 13px; }
+  h2 {
+    color: #e0e0e0;
+    font-size: 15px;
+    margin: 28px 0 12px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #333;
+  }
+  h2 .badge {
+    display: inline-block;
+    background: #00d4ff22;
+    color: #00d4ff;
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 3px;
+    margin-left: 8px;
+    font-weight: normal;
+  }
+  .panel {
+    background: #0f0f1a;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 10px 0 20px 0;
+    overflow-x: auto;
+  }
+  .panel .label {
+    font-size: 11px;
+    color: #585858;
+    margin-bottom: 8px;
+  }
+  /* ── Color tokens ── */
+  .cyan    { color: #00d4ff; }
+  .bold    { font-weight: bold; }
+  .italic  { font-style: italic; }
+  .dim     { color: #585858; }
+  .output  { color: #bcbcbc; }
+  .err     { color: #ff5555; font-weight: bold; }
+  .green   { color: #50fa7b; }
+  .blue    { color: #6272a4; text-decoration: underline; }
+  .filepath{ color: #8be9fd; text-decoration: underline; }
+  .diffadd { color: #50fa7b; }
+  .diffdel { color: #ff5555; }
+  .diffadd-word { color: #fff; background: #1a4a1a; padding: 0 2px; border-radius: 2px; }
+  .diffdel-word { color: #fff; background: #4a1a1a; padding: 0 2px; border-radius: 2px; }
+  .tree    { color: #585858; }
+  .blink   { animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── Dot indicator ── */
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot.active   { background: #00d4ff; }
+  .dot.blink-dot{ background: #00d4ff; animation: blink 1s step-end infinite; }
+  .dot.success  { background: #50fa7b; }
+  .dot.error    { background: #ff5555; }
+  .dot.queued   { background: #585858; }
+  .dot.perm     { background: #585858; opacity: 0.5; }
+
+  .line { white-space: pre; min-height: 1.6em; }
+  .indent { padding-left: 2em; }
+
+  /* ── Spinner section ── */
+  .spinner-frame { display: inline-block; width: 16px; text-align: center; }
+  .shimmer {
+    background: linear-gradient(90deg, #585858 0%, #00d4ff 50%, #585858 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer 2s linear infinite;
+  }
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* ── Todo icons ── */
+  .todo-pending    { color: #bcbcbc; }
+  .todo-progress   { color: #00d4ff; font-weight: bold; }
+  .todo-done       { color: #585858; }
+
+  /* ── Legend ── */
+  .legend { display: flex; gap: 24px; flex-wrap: wrap; margin: 12px 0; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+
+  .sep { border: none; border-top: 1px dashed #333; margin: 24px 0; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>Agent Engine — ToolUI 样式预览 <small>Dark Theme</small></h1>
+<p class="subtitle">以下是各工具在全屏 TUI 中的实际渲染效果（匹配 claude-code-main 样式）</p>
+
+<!-- ── Dot States ── -->
+<div class="legend">
+  <div class="legend-item"><span class="dot queued"></span> Queued (灰)</div>
+  <div class="legend-item"><span class="dot blink-dot"></span> Active (闪烁青)</div>
+  <div class="legend-item"><span class="dot success"></span> Success (绿)</div>
+  <div class="legend-item"><span class="dot error"></span> Error (红)</div>
+  <div class="legend-item"><span class="dot perm"></span> Waiting Permission (暗灰)</div>
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>1. Bash Tool <span class="badge">Phase 4 + 9c</span></h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">普通命令 — 执行中</div>
+  <div class="line"><span class="dot blink-dot"></span><span class="cyan bold">Bash</span> <span class="dim">($ git diff --stat)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Running… 12 lines · 3.2KB · 5s</span></div>
+  <div class="line"><span class="dim">     (ctrl+b to run in background)</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">普通命令 — 完成</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Bash</span> <span class="dim">($ git diff --stat)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Ran (1.234s)</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output"> src/main.go | 12 +++---</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output"> src/util.go |  3 +-</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output"> 2 files changed, 8 insertions(+), 7 deletions(-)</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">带注释标签 — 折叠显示</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Bash</span> <span class="dim">(Install dependencies)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Ran (5.678s)</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output">added 234 packages in 5s</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">sed -i 作为文件编辑显示</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Bash</span> <span class="dim">(src/config.go)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Ran (23ms)</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">命令失败 — 错误状态</div>
+  <div class="line"><span class="dot error"></span><span class="cyan bold">Bash</span> <span class="dim">($ npm run build)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="err">Exit code 1 (3.456s)</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output">Error: Cannot find module 'react'</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">实时流式输出</div>
+  <div class="line"><span class="dot blink-dot"></span><span class="cyan bold">Bash</span> <span class="dim">($ npm install)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Running… (3s)</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output">npm warn deprecated inflight@1.0.6</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output">npm warn deprecated glob@7.2.3</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output">added 182 packages in 3s</span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>2. FileEdit Tool <span class="badge">Phase 5 + 9d</span></h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">更新文件 — 带 word-level diff</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Update</span> <span class="dim">(…/internal/tool/bash/bash.go)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Applied (23ms) — 5 lines changed</span></div>
+  <div class="line"><span class="diffdel">     - </span><span class="diffdel">func (t *BashTool) </span><span class="diffdel-word">Name</span><span class="diffdel">() string</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">func (t *BashTool) </span><span class="diffadd-word">ToolName</span><span class="diffadd">() string</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">创建新文件</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Create</span> <span class="dim">(…/internal/tool/new_tool.go)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Applied (12ms) — 42 lines changed</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">package newtool</span></div>
+  <div class="line"><span class="diffadd">     + </span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">import "encoding/json"</span></div>
+  <div class="line"><span class="dim">     … (39 more lines)</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">Structured Patch（多 hunk）</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Update</span> <span class="dim">(src/main.go)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Applied (45ms) — 12 lines changed</span></div>
+  <div class="line">       <span class="dim">import (</span></div>
+  <div class="line"><span class="diffdel">     - </span><span class="diffdel">    "fmt"</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">    "fmt"</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">    "strings"</span></div>
+  <div class="line">       <span class="dim">)</span></div>
+  <div class="line"></div>
+  <div class="line">       <span class="dim">func main() {</span></div>
+  <div class="line"><span class="diffdel">     - </span><span class="diffdel">    fmt.Println("hello")</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">    fmt.Println(strings.ToUpper("hello"))</span></div>
+  <div class="line">       <span class="dim">}</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">replace_all 模式</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Update</span> <span class="dim">(src/config.go)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Applied (18ms) — replaced 7 occurrences</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">编辑被拒绝（权限）</div>
+  <div class="line"><span class="dot error"></span><span class="cyan bold">Update</span> <span class="dim">(…/etc/passwd)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="err">Edit rejected</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">文件写入</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Write</span> <span class="dim">(/tmp/output.json)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Written (8ms)</span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>3. WebSearch Tool <span class="badge">Phase 1 + 9a</span></h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">搜索中</div>
+  <div class="line"><span class="dot blink-dot"></span><span class="cyan bold">Search</span> <span class="dim">(golang concurrency patterns)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Searching: "golang concurrency patterns"…</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">搜索完成</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Search</span> <span class="dim">(golang concurrency patterns)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Found 5 results (1.2s)</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output">- [Go Concurrency Patterns](https://go.dev/blog/...)</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output">- [Effective Go - Concurrency](https://go.dev/doc/...)</span></div>
+  <div class="line"><span class="tree">  │ </span><span class="output">- [Concurrency in Go Tutorial](https://example.com/...)</span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>4. WebFetch Tool <span class="badge">Phase 2 + 9a</span></h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">获取中</div>
+  <div class="line"><span class="dot blink-dot"></span><span class="cyan bold">Fetch</span> <span class="dim">(https://api.example.com/docs)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Fetching…</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">获取完成</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Fetch</span> <span class="dim">(https://api.example.com/docs)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="output">Received <span class="cyan bold">12.4KB</span> (200 OK) in 1.5s</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">重定向</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Fetch</span> <span class="dim">(http://example.com)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Redirected → https://www.example.com</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="output">Received <span class="cyan bold">2.3KB</span> (200 OK) in 0.8s</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">请求失败</div>
+  <div class="line"><span class="dot error"></span><span class="cyan bold">Fetch</span> <span class="dim">(https://api.example.com/secret)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="err">Error: 403 Forbidden (340ms)</span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>5. FileRead Tool <span class="badge">Phase 6</span></h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">读取文件</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Read</span> <span class="dim">(/src/main.go)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Read 42 lines (12ms)</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">读取文件 — 带行范围</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Read</span> <span class="dim">(…/internal/engine/engine.go 100-200)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Read 100 lines (8ms)</span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>6. Grep / Glob Tools <span class="badge">Phase 7 + 8</span></h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">Grep 搜索</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Grep</span> <span class="dim">(pattern: "TODO", path: "…/src")</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Found 12 results across 5 files  <span class="dim">(Ctrl+O to expand)</span></span></div>
+</div>
+
+<div class="panel">
+  <div class="label">Glob 搜索</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Search</span> <span class="dim">(pattern: "**/*.go", path: "…/internal")</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Found 42 files  <span class="dim">(Ctrl+O to expand)</span></span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>7. Collapsed Read/Search Group</h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">折叠状态 — 多文件读取</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Read</span> <span class="dim">(5 files)</span>  <span class="dim">(Ctrl+O to expand)</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">展开状态</div>
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Read</span> <span class="dim">(5 files)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="filepath">/src/main.go</span></div>
+  <div class="line"><span class="tree">  │  </span><span class="filepath">/src/utils.go</span></div>
+  <div class="line"><span class="tree">  │  </span><span class="filepath">/src/config.go</span></div>
+  <div class="line"><span class="tree">  │  </span><span class="filepath">/internal/engine/engine.go</span></div>
+  <div class="line"><span class="tree">  │  </span><span class="filepath">/internal/tool/bash/bash.go</span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>8. Todo Tool <span class="badge">Phase 3 + 9b</span></h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">任务列表 — 完整视图</div>
+  <div class="line"><span class="todo-done">  ✓ Set up project structure</span></div>
+  <div class="line"><span class="todo-done">  ✓ Implement CSS styles</span></div>
+  <div class="line"><span class="todo-progress">  ◉ Adding state management</span></div>
+  <div class="line"><span class="todo-pending">  ☐ Create dark mode toggle</span></div>
+  <div class="line"><span class="todo-pending">  ☐ Write unit tests</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">任务列表 — 紧凑摘要</div>
+  <div class="line"><span class="dim">Tasks: 2/5 done, working on "Adding state management"</span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>9. Spinner <span class="badge">Phase 9e</span></h2>
+
+<div class="two-col">
+
+<div class="panel">
+  <div class="label">请求模式 — 等待 API</div>
+  <div class="line"><span class="spinner-frame cyan">⠋</span> <span class="shimmer">Requesting…</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">思考模式 — 带计时</div>
+  <div class="line"><span class="spinner-frame dim">⠋</span> <span class="dim shimmer">thinking… (5s)</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">工具执行模式</div>
+  <div class="line"><span class="spinner-frame cyan">⠋</span> <span class="shimmer">Running tool…</span></div>
+</div>
+
+<div class="panel">
+  <div class="label">activeForm 覆盖（来自 Todo）</div>
+  <div class="line"><span class="spinner-frame cyan">⠋</span> <span class="shimmer">Adding state management…</span></div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<h2>10. 完整对话流示例</h2>
+
+<div class="panel" style="max-width: 720px;">
+  <div class="label">模拟一个真实的工具调用序列</div>
+  <br>
+  <div class="line" style="color: #e0e0e0; margin-bottom: 12px;">
+    <span style="color: #00d4ff; font-weight: bold;">You:</span> 帮我在 main.go 中添加一个 healthcheck 端点
+  </div>
+
+  <div class="line" style="color: #bcbcbc; margin-bottom: 8px;">
+    我来帮你添加 healthcheck 端点。先读取当前文件：
+  </div>
+
+  <!-- Read -->
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Read</span> <span class="dim">(…/src/main.go)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Read 85 lines (6ms)</span></div>
+  <br>
+
+  <div class="line" style="color: #bcbcbc; margin-bottom: 8px;">
+    现在添加 healthcheck handler：
+  </div>
+
+  <!-- Edit -->
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Update</span> <span class="dim">(…/src/main.go)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Applied (15ms) — 8 lines changed</span></div>
+  <div class="line">       <span class="dim">func main() {</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">    http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">        w.WriteHeader(http.StatusOK)</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">        w.Write([]byte(`{"status":"ok"}`))</span></div>
+  <div class="line"><span class="diffadd">     + </span><span class="diffadd">    })</span></div>
+  <div class="line">       <span class="dim">    http.ListenAndServe(":8080", nil)</span></div>
+  <br>
+
+  <div class="line" style="color: #bcbcbc; margin-bottom: 8px;">
+    验证编译通过：
+  </div>
+
+  <!-- Bash -->
+  <div class="line"><span class="dot success"></span><span class="cyan bold">Bash</span> <span class="dim">($ go build ./...)</span></div>
+  <div class="line"><span class="tree">  ⎿  </span><span class="dim">Ran (1.234s)</span></div>
+  <br>
+
+  <div class="line" style="color: #bcbcbc;">
+    ✅ 已添加 <code>/healthz</code> 端点，编译通过。
+  </div>
+</div>
+
+<hr class="sep">
+
+<div style="text-align: center; color: #585858; padding: 16px; font-size: 12px;">
+  Agent Engine v0.1.0 — ToolUI Theme Preview<br>
+  Colors: ANSI 256-color dark theme · Font: Monospace
+</div>
+
+</body>
+</html>

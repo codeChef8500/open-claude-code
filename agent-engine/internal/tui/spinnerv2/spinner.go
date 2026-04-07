@@ -76,6 +76,9 @@ func (e EffortLevel) Glyph() string {
 	}
 }
 
+// minThinkingDisplayMs is the minimum time to show "thinking" before switching.
+const minThinkingDisplayMs = 2000
+
 type SpinnerModel struct {
 	frames  []string
 	visible bool
@@ -91,6 +94,14 @@ type SpinnerModel struct {
 
 	// Smooth token animation (matching claude-code-main's SpinnerAnimationRow)
 	displayedTokens int
+
+	// activeFormOverride, when set, replaces the spinner label with the
+	// current todo's activeForm text (e.g. "Running tests…").
+	activeFormOverride string
+
+	// thinkingStartMs records when ModeThinking was entered, used for
+	// minimum 2s display time.
+	thinkingStartMs int64
 
 	// reducedMotion disables animation (static ● glyph).
 	reducedMotion bool
@@ -123,8 +134,23 @@ func (s *SpinnerModel) ShowWithMode(label string, mode SpinnerMode) {
 }
 
 // SetMode changes the spinner's visual mode without resetting animation.
+// ModeThinking tracks its start time for minimum display duration.
 func (s *SpinnerModel) SetMode(mode SpinnerMode) {
+	if mode == ModeThinking && s.mode != ModeThinking {
+		s.thinkingStartMs = s.currentMs
+	}
 	s.mode = mode
+}
+
+// SetActiveForm sets (or clears) the todo activeForm override.
+// When non-empty, the spinner label shows this text + "…" suffix.
+func (s *SpinnerModel) SetActiveForm(form string) {
+	s.activeFormOverride = form
+}
+
+// ActiveForm returns the current activeForm override.
+func (s *SpinnerModel) ActiveForm() string {
+	return s.activeFormOverride
 }
 
 // Mode returns the current spinner mode.
@@ -152,6 +178,7 @@ func (s *SpinnerModel) IsVisible() bool { return s.visible }
 func (s *SpinnerModel) SetTokenCount(n int) { s.tokenCount = n }
 
 // SetLabel updates the spinner label text.
+// Note: if activeFormOverride is set, it takes precedence in View().
 func (s *SpinnerModel) SetLabel(label string) { s.label = label }
 
 // SetEffort updates the effort level indicator.
@@ -228,8 +255,9 @@ func (s *SpinnerModel) View() string {
 	sb.WriteString(s.renderGlyph())
 	sb.WriteString(" ")
 
-	// 2. Label with shimmer effect
-	sb.WriteString(s.renderLabel())
+	// 2. Label with shimmer effect (activeForm override takes precedence)
+	label := s.effectiveLabel()
+	sb.WriteString(s.renderLabelText(label))
 
 	// 2b. Effort level indicator
 	if g := s.effort.Glyph(); g != "" {
@@ -310,20 +338,37 @@ func (s *SpinnerModel) renderGlyph() string {
 	return style.Render(char)
 }
 
-// renderLabel renders the label text with shimmer effect.
+// effectiveLabel returns the label to display, preferring activeFormOverride.
+func (s *SpinnerModel) effectiveLabel() string {
+	if s.activeFormOverride != "" {
+		af := s.activeFormOverride
+		if !strings.HasSuffix(af, "…") && !strings.HasSuffix(af, "...") {
+			af += "…"
+		}
+		return af
+	}
+	return s.label
+}
+
+// renderLabelText renders the given label text with shimmer effect.
 // ModeThinking uses Inactive/InactiveShimmer colors.
 // ModeRequesting uses Claude/ClaudeShimmer colors.
-func (s *SpinnerModel) renderLabel() string {
-	if s.reducedMotion || s.label == "" {
+func (s *SpinnerModel) renderLabelText(label string) string {
+	if s.reducedMotion || label == "" {
 		dimStyle := lipgloss.NewStyle().Foreground(color.Resolve(s.theme.Inactive))
-		return dimStyle.Render(s.label)
+		return dimStyle.Render(label)
 	}
 
 	switch s.mode {
 	case ModeThinking:
-		return ShimmerText(s.label, s.theme.Inactive, s.theme.InactiveShimmer, s.currentMs)
+		// Show thinking duration after minimum display time.
+		if s.currentMs-s.thinkingStartMs >= minThinkingDisplayMs {
+			thinkSec := (s.currentMs - s.thinkingStartMs) / 1000
+			label = fmt.Sprintf("thinking… (%ds)", thinkSec)
+		}
+		return ShimmerText(label, s.theme.Inactive, s.theme.InactiveShimmer, s.currentMs)
 	default:
-		return ShimmerText(s.label, s.theme.Claude, s.theme.ClaudeShimmer, s.currentMs)
+		return ShimmerText(label, s.theme.Claude, s.theme.ClaudeShimmer, s.currentMs)
 	}
 }
 

@@ -1,20 +1,24 @@
 package message
 
-import "time"
+import (
+	"time"
+
+	"github.com/wall-ai/agent-engine/internal/tui/toolui"
+)
 
 // MessageType identifies the role of a message in the conversation.
 type MessageType string
 
 const (
-	TypeUser      MessageType = "user"
-	TypeAssistant MessageType = "assistant"
-	TypeSystem    MessageType = "system"
-	TypeError     MessageType = "error"
-	TypeToolUse   MessageType = "tool_use"
+	TypeUser       MessageType = "user"
+	TypeAssistant  MessageType = "assistant"
+	TypeSystem     MessageType = "system"
+	TypeError      MessageType = "error"
+	TypeToolUse    MessageType = "tool_use"
 	TypeToolResult MessageType = "tool_result"
-	TypeThinking  MessageType = "thinking"
-	TypeProgress  MessageType = "progress"
-	TypeCompact   MessageType = "compact_boundary"
+	TypeThinking   MessageType = "thinking"
+	TypeProgress   MessageType = "progress"
+	TypeCompact    MessageType = "compact_boundary"
 	TypeAttachment MessageType = "attachment"
 )
 
@@ -22,11 +26,11 @@ const (
 type ContentBlockType string
 
 const (
-	BlockText         ContentBlockType = "text"
-	BlockToolUse      ContentBlockType = "tool_use"
-	BlockToolResult   ContentBlockType = "tool_result"
-	BlockThinking     ContentBlockType = "thinking"
-	BlockImage        ContentBlockType = "image"
+	BlockText             ContentBlockType = "text"
+	BlockToolUse          ContentBlockType = "tool_use"
+	BlockToolResult       ContentBlockType = "tool_result"
+	BlockThinking         ContentBlockType = "thinking"
+	BlockImage            ContentBlockType = "image"
 	BlockRedactedThinking ContentBlockType = "redacted_thinking"
 )
 
@@ -45,6 +49,7 @@ type RenderableMessage struct {
 	ToolUseID string
 	ToolName  string
 	ToolInput map[string]interface{}
+	DotState  toolui.DotState // dynamic dot state for tool rendering
 
 	// Tool result fields
 	ToolResult string
@@ -105,6 +110,7 @@ type StreamingToolUse struct {
 	Finished bool
 	Output   string
 	IsError  bool
+	DotState toolui.DotState // dynamic dot state
 }
 
 // StreamingThinking tracks an in-progress thinking block.

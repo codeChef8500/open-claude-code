@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	sess "github.com/wall-ai/agent-engine/internal/tui/session"
 	"github.com/wall-ai/agent-engine/internal/tui/spinnerv2"
 	"github.com/wall-ai/agent-engine/internal/tui/themes"
+	"github.com/wall-ai/agent-engine/internal/tui/toolui"
 	"github.com/wall-ai/agent-engine/internal/tui/vim"
 )
 
@@ -87,6 +89,9 @@ type App struct {
 
 	// AskUserQuestion interactive dialog
 	askDialog *askquestion.AskQuestionDialog
+
+	// Collapsed group state
+	collapsedGroupExpanded bool // toggled by Ctrl+O
 
 	// SubmitFn is called when the user sends a message.
 	SubmitFn func(text string)
@@ -369,8 +374,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.refreshViewport()
 
 		case msg.Type == tea.KeyCtrlO:
-			// Toggle transcript mode
-			if a.screenMode == ScreenPrompt {
+			// If there are collapsed groups, toggle expansion; otherwise toggle transcript
+			if a.hasCollapsedGroups() {
+				a.collapsedGroupExpanded = !a.collapsedGroupExpanded
+				a.refreshViewport()
+			} else if a.screenMode == ScreenPrompt {
 				a.screenMode = ScreenTranscript
 				a.screen.SetMode(ScreenTranscript)
 			} else {
@@ -468,10 +476,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.viewport.GotoBottom()
 
 	case ToolStartMsg:
+		// Parse JSON input into map for toolui rendering
+		var toolInput map[string]interface{}
+		if msg.Input != "" {
+			_ = json.Unmarshal([]byte(msg.Input), &toolInput)
+		}
 		a.messages = append(a.messages, ChatMessage{
-			Role:     "tool_use",
-			ToolName: msg.ToolName,
-			Content:  msg.Input,
+			Role:      "tool_use",
+			ToolName:  msg.ToolName,
+			Content:   msg.Input,
+			ToolInput: toolInput,
+			StartTime: time.Now(),
+			DotState:  1, // DotActive
+			ToolID:    msg.ToolID,
 		})
 		a.toolTrack.StartTool(msg.ToolID, msg.ToolName, msg.Input)
 		a.spinner.SetLabel(msg.ToolName + "…")
@@ -483,12 +500,65 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.refreshViewport()
 		a.viewport.GotoBottom()
 
+	case ToolProgressMsg:
+		// Update the matching tool_use message with streaming progress content
+		for j := len(a.messages) - 1; j >= 0; j-- {
+			if a.messages[j].Role == "tool_use" {
+				matched := false
+				if msg.ToolID != "" && a.messages[j].ToolID == msg.ToolID {
+					matched = true
+				} else if msg.ToolName != "" && a.messages[j].ToolName == msg.ToolName {
+					matched = true
+				}
+				if matched {
+					a.messages[j].ProgressContent = msg.Content
+					a.refreshViewport()
+					a.viewport.GotoBottom()
+					break
+				}
+			}
+		}
+
 	case ToolDoneMsg:
+		// Resolve tool name and update matching tool_use dot state
+		toolName := msg.ToolName
+		var toolInput map[string]interface{}
+		var elapsed time.Duration
+		dotState := 2 // DotSuccess
+		if msg.IsError {
+			dotState = 3 // DotError
+		}
+		for j := len(a.messages) - 1; j >= 0; j-- {
+			if a.messages[j].Role == "tool_use" {
+				// Match by ToolID if available, otherwise by name or last tool_use
+				matched := false
+				if msg.ToolID != "" && a.messages[j].ToolID == msg.ToolID {
+					matched = true
+				} else if toolName != "" && a.messages[j].ToolName == toolName {
+					matched = true
+				} else if toolName == "" {
+					matched = true
+				}
+				if matched {
+					if toolName == "" {
+						toolName = a.messages[j].ToolName
+					}
+					toolInput = a.messages[j].ToolInput
+					elapsed = time.Since(a.messages[j].StartTime)
+					// Update the tool_use message's dot state
+					a.messages[j].DotState = dotState
+					break
+				}
+			}
+		}
 		a.messages = append(a.messages, ChatMessage{
-			Role:     "tool_result",
-			ToolName: msg.ToolID,
-			Content:  msg.Output,
-			IsError:  msg.IsError,
+			Role:      "tool_result",
+			ToolName:  toolName,
+			Content:   msg.Output,
+			IsError:   msg.IsError,
+			ExitCode:  msg.ExitCode,
+			ToolInput: toolInput,
+			Elapsed:   elapsed,
 		})
 		a.toolTrack.FinishTool(msg.ToolID, msg.Output, msg.IsError)
 		a.spinner.ShowRandom()
@@ -943,7 +1013,69 @@ func (a *App) renderMessages() string {
 	connector := a.styles.Connector.Render("  ⎿  ")
 
 	var sb strings.Builder
-	for i, m := range a.messages {
+	i := 0
+	for i < len(a.messages) {
+		m := a.messages[i]
+
+		// Collapsed group detection: 3+ consecutive read/search tool_use+tool_result pairs
+		if m.Role == "tool_use" && isCollapsibleTool(m.ToolName) {
+			groupStart := i
+			groupItems := []toolui.CollapsedItem{}
+			j := i
+			for j < len(a.messages) && a.messages[j].Role == "tool_use" && isCollapsibleTool(a.messages[j].ToolName) {
+				fp, _ := a.messages[j].ToolInput["file_path"].(string)
+				if fp == "" {
+					fp, _ = a.messages[j].ToolInput["path"].(string)
+				}
+				groupItems = append(groupItems, toolui.CollapsedItem{
+					FilePath: fp,
+					ToolName: toolUserFacingName(a.messages[j].ToolName),
+				})
+				j++ // skip tool_use
+				if j < len(a.messages) && a.messages[j].Role == "tool_result" {
+					j++ // skip tool_result
+				}
+			}
+			if len(groupItems) >= 3 {
+				// Render as collapsed group
+				theme := a.buildToolUITheme()
+				label := groupItems[0].ToolName
+				group := toolui.NewCollapsedGroup(label, theme)
+				for _, item := range groupItems {
+					group.Add(item)
+				}
+				// Determine dot state: all done = success, any active = active
+				allDone := true
+				anyError := false
+				for k := groupStart; k < j; k++ {
+					if a.messages[k].Role == "tool_use" {
+						if a.messages[k].DotState == 1 { // Active
+							allDone = false
+						}
+						if a.messages[k].DotState == 3 { // Error
+							anyError = true
+						}
+					}
+				}
+				dotState := 0
+				if allDone && !anyError {
+					dotState = 2 // Success
+				} else if anyError {
+					dotState = 3 // Error
+				} else if !allDone {
+					dotState = 1 // Active
+				}
+				dot := a.dotViewForState(dotState)
+				group.Expanded = a.collapsedGroupExpanded
+				sb.WriteString(group.View(dot))
+				sb.WriteString("\n\n")
+				i = j
+				continue
+			}
+			// Less than 3 items: render individually, fall through to normal loop
+			_ = groupStart
+		}
+
 		var line string
 		switch m.Role {
 		case "user":
@@ -969,15 +1101,9 @@ func (a *App) renderMessages() string {
 			line = errDot + " " + a.styles.Error.Render(m.Content)
 
 		case "tool_use":
-			// claude-code format: ● ToolName (params)
-			toolDot := a.styles.Dot.Render(figures.BlackCircle()) + " "
-			toolName := toolUserFacingName(m.ToolName)
-			nameStyle := a.styles.ToolUse.Bold(true).Italic(false)
-			line = toolDot + nameStyle.Render(toolName)
-			if m.Content != "" {
-				summary := truncateOutput(m.Content, 120)
-				line += " " + a.styles.Dimmed.Render("("+summary+")")
-			}
+			theme := a.buildToolUITheme()
+			dot := a.dotViewForState(m.DotState)
+			line = a.renderToolUseEnhanced(m, theme, dot)
 			// If permission dialog is visible and this is the last tool_use,
 			// show "Waiting for permission…" below it
 			if a.permission.IsVisible() && isLastToolUse(a.messages, i) {
@@ -985,12 +1111,12 @@ func (a *App) renderMessages() string {
 			}
 
 		case "tool_result":
-			// claude-code format:   ⎿  result content
-			if m.IsError {
-				line = connector + a.styles.Error.Render(truncateToolOutput(m.Content, 5))
-			} else {
-				line = connector + a.styles.Dimmed.Render(truncateToolOutput(m.Content, 10))
+			theme := a.buildToolUITheme()
+			w := a.layout.BodyWidth()
+			if w < 40 {
+				w = 80
 			}
+			line = a.renderToolResultEnhanced(m, theme, w)
 
 		case "banner":
 			line = m.Content
@@ -1000,8 +1126,449 @@ func (a *App) renderMessages() string {
 		}
 		sb.WriteString(line)
 		sb.WriteString("\n\n")
+		i++
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// hasCollapsedGroups checks if there are any collapsed read/search groups in messages.
+func (a *App) hasCollapsedGroups() bool {
+	count := 0
+	for _, m := range a.messages {
+		if m.Role == "tool_use" && isCollapsibleTool(m.ToolName) {
+			count++
+			if count >= 3 {
+				return true
+			}
+		} else if m.Role != "tool_result" {
+			count = 0
+		}
+	}
+	return false
+}
+
+// isCollapsibleTool returns true if the tool name is eligible for collapsed grouping.
+func isCollapsibleTool(name string) bool {
+	switch name {
+	case "Read", "read", "FileRead", "file_read",
+		"Glob", "glob",
+		"Grep", "grep":
+		return true
+	}
+	return false
+}
+
+// dotViewForState returns a colored dot string based on the DotState value.
+// 0=queued(gray), 1=active(cyan), 2=success(green), 3=error(red)
+func (a *App) dotViewForState(state int) string {
+	glyph := figures.BlackCircle()
+	switch state {
+	case 1: // Active — cyan
+		return a.styles.Dot.Render(glyph) + " "
+	case 2: // Success — green
+		return a.styles.Success.Render(glyph) + " "
+	case 3: // Error — red
+		return a.styles.Error.Render(glyph) + " "
+	default: // Queued — dim gray
+		return a.styles.Dimmed.Render(glyph) + " "
+	}
+}
+
+// buildToolUITheme constructs a ToolUITheme from the App's current styles.
+func (a *App) buildToolUITheme() toolui.ToolUITheme {
+	return toolui.ToolUITheme{
+		ToolIcon:    a.styles.ToolUse,
+		TreeConn:    a.styles.Connector,
+		Code:        a.styles.Highlight,
+		Output:      a.styles.Dimmed,
+		Dim:         a.styles.Dimmed,
+		Error:       a.styles.Error,
+		Success:     a.styles.Success,
+		FilePath:    a.styles.Highlight,
+		DiffAdd:     a.styles.DiffAdd,
+		DiffDel:     a.styles.DiffDel,
+		DiffCtx:     lipgloss.NewStyle().Foreground(lipgloss.Color("250")),
+		DiffHdr:     lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true),
+		DiffAddWord: lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("22")),
+		DiffDelWord: lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("52")),
+	}
+}
+
+// renderToolUseEnhanced dispatches to per-tool toolui renderers for tool_use messages.
+func (a *App) renderToolUseEnhanced(m ChatMessage, theme toolui.ToolUITheme, dot string) string {
+	nameStyle := theme.ToolIcon.Bold(true).Italic(false)
+
+	switch m.ToolName {
+	case "Bash", "bash":
+		ui := toolui.NewBashToolUI(theme)
+		cmd, _ := m.ToolInput["command"].(string)
+		// Detect sed -i as file edit (matching claude-code-main)
+		if fp := extractSedFile(cmd); fp != "" {
+			return ui.RenderSedAsEdit(dot, fp)
+		}
+		header := ui.RenderStart(dot, cmd, false)
+		// Show streaming progress when tool is active
+		if m.DotState == 1 && m.ProgressContent != "" {
+			elapsed := time.Since(m.StartTime)
+			lines := strings.Count(m.ProgressContent, "\n") + 1
+			progress := toolui.BashProgress{
+				Output:     m.ProgressContent,
+				ElapsedSec: elapsed.Seconds(),
+				TotalLines: lines,
+				TotalBytes: int64(len(m.ProgressContent)),
+			}
+			return header + "\n" + ui.RenderProgress(progress)
+		}
+		if m.DotState == 1 {
+			elapsed := time.Since(m.StartTime)
+			running := theme.Dim.Render(fmt.Sprintf("Running… (%s)", elapsed.Truncate(time.Second)))
+			return header + "\n" + toolui.RenderResponseLine(running, theme)
+		}
+		return header
+
+	case "PowerShell", "powershell":
+		cmd, _ := m.ToolInput["command"].(string)
+		line := dot + nameStyle.Render("PowerShell")
+		if cmd != "" {
+			line += " " + theme.Code.Render(truncateOutput(cmd, 100))
+		}
+		// Show streaming progress when active
+		if m.DotState == 1 && m.ProgressContent != "" {
+			elapsed := time.Since(m.StartTime)
+			lines := strings.Count(m.ProgressContent, "\n") + 1
+			progress := toolui.BashProgress{
+				Output:     m.ProgressContent,
+				ElapsedSec: elapsed.Seconds(),
+				TotalLines: lines,
+				TotalBytes: int64(len(m.ProgressContent)),
+			}
+			ui := toolui.NewBashToolUI(theme)
+			return line + "\n" + ui.RenderProgress(progress)
+		}
+		if m.DotState == 1 {
+			elapsed := time.Since(m.StartTime)
+			running := theme.Dim.Render(fmt.Sprintf("Running… (%s)", elapsed.Truncate(time.Second)))
+			return line + "\n" + toolui.RenderResponseLine(running, theme)
+		}
+		return line
+
+	case "Edit", "edit", "FileEdit", "file_edit":
+		ui := toolui.NewEditToolUI(theme)
+		fp, _ := m.ToolInput["file_path"].(string)
+		oldStr, _ := m.ToolInput["old_string"].(string)
+		toolName := "Update"
+		if oldStr == "" {
+			toolName = "Create"
+		}
+		return ui.RenderStart(dot, toolName, fp, false)
+
+	case "Write", "write", "FileWrite", "file_write":
+		ui := toolui.NewWriteToolUI(theme)
+		fp, _ := m.ToolInput["file_path"].(string)
+		return ui.RenderStart(dot, fp, false)
+
+	case "Read", "read", "FileRead", "file_read":
+		ui := toolui.NewReadToolUI(theme)
+		fp, _ := m.ToolInput["file_path"].(string)
+		var lineRange string
+		if off, ok := m.ToolInput["offset"]; ok {
+			lineRange = fmt.Sprintf("L%v", off)
+		}
+		return ui.RenderStart(dot, fp, lineRange, false)
+
+	case "NotebookEdit", "notebook_edit":
+		fp, _ := m.ToolInput["notebook_path"].(string)
+		cellNum := ""
+		if cn, ok := m.ToolInput["cell_number"]; ok {
+			cellNum = fmt.Sprintf("cell %v", cn)
+		}
+		line := dot + nameStyle.Render("NotebookEdit")
+		params := fp
+		if cellNum != "" {
+			params += " " + cellNum
+		}
+		if params != "" {
+			line += " " + theme.Dim.Render(params)
+		}
+		return line
+
+	case "Glob", "glob":
+		ui := toolui.NewGlobToolUI(theme)
+		pat, _ := m.ToolInput["pattern"].(string)
+		dir, _ := m.ToolInput["path"].(string)
+		return ui.RenderStart(dot, pat, dir, false)
+
+	case "Grep", "grep":
+		ui := toolui.NewGrepToolUI(theme)
+		pat, _ := m.ToolInput["pattern"].(string)
+		dir, _ := m.ToolInput["path"].(string)
+		return ui.RenderStart(dot, pat, dir, false)
+
+	case "WebSearch", "web_search":
+		ui := toolui.NewWebSearchToolUI(theme)
+		query, _ := m.ToolInput["query"].(string)
+		return ui.RenderStart(dot, query)
+
+	case "WebFetch", "web_fetch":
+		ui := toolui.NewWebFetchToolUI(theme)
+		urlStr, _ := m.ToolInput["url"].(string)
+		return ui.RenderStart(dot, urlStr)
+
+	case "TodoWrite", "todo_write":
+		line := dot + nameStyle.Render("TodoWrite")
+		return line
+
+	case "Task", "task":
+		task, _ := m.ToolInput["task"].(string)
+		line := dot + nameStyle.Render("Task")
+		if task != "" {
+			line += " " + theme.Dim.Render(truncateOutput(task, 80))
+		}
+		return line
+
+	case "REPL", "repl":
+		lang, _ := m.ToolInput["language"].(string)
+		code, _ := m.ToolInput["code"].(string)
+		label := "REPL"
+		if lang != "" {
+			label += " (" + lang + ")"
+		}
+		line := dot + nameStyle.Render(label)
+		if code != "" {
+			line += "\n" + theme.TreeConn.Render("  ⎿  ") + theme.Code.Render(truncateOutput(code, 120))
+		}
+		return line
+
+	case "SendUserMessage", "Brief", "send_user_message":
+		line := dot + nameStyle.Render("Message")
+		return line
+
+	case "lsp", "LSP":
+		action, _ := m.ToolInput["action"].(string)
+		line := dot + nameStyle.Render("LSP")
+		if action != "" {
+			line += " " + theme.Dim.Render(action)
+		}
+		return line
+
+	default:
+		// Smart generic fallback: ● ToolName (key params)
+		toolName := toolUserFacingName(m.ToolName)
+		line := dot + nameStyle.Render(toolName)
+		params := summarizeInputParams(m.ToolInput)
+		if params != "" {
+			line += " " + theme.Dim.Render(params)
+		} else if m.Content != "" {
+			summary := truncateOutput(m.Content, 120)
+			line += " " + theme.Dim.Render("("+summary+")")
+		}
+		return line
+	}
+}
+
+// summarizeInputParams extracts key-value pairs from ToolInput for display.
+func summarizeInputParams(input map[string]interface{}) string {
+	if len(input) == 0 {
+		return ""
+	}
+	// Priority keys to show
+	priorityKeys := []string{
+		"command", "query", "url", "file_path", "path", "pattern",
+		"task", "title", "id", "name", "message", "reason",
+		"skill_name", "language", "action", "key",
+	}
+	var parts []string
+	for _, k := range priorityKeys {
+		if v, ok := input[k]; ok {
+			s := fmt.Sprintf("%v", v)
+			if s != "" {
+				if len(s) > 60 {
+					s = s[:60] + "…"
+				}
+				parts = append(parts, k+": "+s)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
+}
+
+// renderToolResultEnhanced dispatches to per-tool toolui renderers for tool_result messages.
+func (a *App) renderToolResultEnhanced(m ChatMessage, theme toolui.ToolUITheme, width int) string {
+	connector := a.styles.Connector.Render("  ⎿  ")
+
+	switch m.ToolName {
+	case "Bash", "bash":
+		ui := toolui.NewBashToolUI(theme)
+		return ui.RenderResult(m.Content, m.ExitCode, m.Elapsed, width)
+
+	case "Edit", "edit", "FileEdit", "file_edit":
+		ui := toolui.NewEditToolUI(theme)
+		if m.IsError {
+			fp, _ := m.ToolInput["file_path"].(string)
+			oldStr, _ := m.ToolInput["old_string"].(string)
+			return ui.RenderRejected(fp, oldStr == "")
+		}
+		oldStr, _ := m.ToolInput["old_string"].(string)
+		newStr, _ := m.ToolInput["new_string"].(string)
+		linesChanged := strings.Count(m.Content, "\n")
+		if linesChanged == 0 && m.Content != "" {
+			linesChanged = 1
+		}
+		return ui.RenderResult(true, m.Elapsed, linesChanged, oldStr, newStr, width)
+
+	case "Write", "write", "FileWrite", "file_write":
+		ui := toolui.NewWriteToolUI(theme)
+		return ui.RenderResult(!m.IsError, m.Elapsed)
+
+	case "Read", "read", "FileRead", "file_read":
+		ui := toolui.NewReadToolUI(theme)
+		lineCount := strings.Count(m.Content, "\n")
+		return ui.RenderResult(m.Content, lineCount, m.Elapsed, width, false)
+
+	case "Glob", "glob":
+		ui := toolui.NewGlobToolUI(theme)
+		var files []string
+		if m.Content != "" {
+			files = strings.Split(strings.TrimSpace(m.Content), "\n")
+		}
+		return ui.RenderResult(files, m.Elapsed, false)
+
+	case "Grep", "grep":
+		ui := toolui.NewGrepToolUI(theme)
+		numMatches := strings.Count(m.Content, "\n")
+		if m.Content != "" && numMatches == 0 {
+			numMatches = 1
+		}
+		// Estimate file count from unique file paths in output
+		fileCount := countUniqueFiles(m.Content)
+		return ui.RenderResult(numMatches, fileCount, m.Content, m.Elapsed, width, false)
+
+	case "WebSearch", "web_search":
+		ui := toolui.NewWebSearchToolUI(theme)
+		// Parse structured JSON output: {"query":"...", "results":[{"title":"...", "url":"..."}]}
+		var searchOut struct {
+			Results []struct {
+				Title string `json:"title"`
+				URL   string `json:"url"`
+			} `json:"results"`
+		}
+		var hits []toolui.SearchHitDisplay
+		if m.Content != "" {
+			if json.Unmarshal([]byte(m.Content), &searchOut) == nil {
+				for _, r := range searchOut.Results {
+					hits = append(hits, toolui.SearchHitDisplay{Title: r.Title, URL: r.URL})
+				}
+			}
+		}
+		return ui.RenderResult(len(hits), m.Elapsed, hits, width)
+
+	case "WebFetch", "web_fetch":
+		ui := toolui.NewWebFetchToolUI(theme)
+		// Parse structured JSON output: {"bytes":N, "code":200, "codeText":"OK"}
+		var fetchOut struct {
+			Bytes    int    `json:"bytes"`
+			Code     int    `json:"code"`
+			CodeText string `json:"codeText"`
+		}
+		if m.Content != "" {
+			_ = json.Unmarshal([]byte(m.Content), &fetchOut)
+		}
+		if fetchOut.Code == 0 {
+			if m.IsError {
+				return ui.RenderResult(len(m.Content), 0, "Error", m.Elapsed)
+			}
+			return ui.RenderResult(len(m.Content), 200, "OK", m.Elapsed)
+		}
+		return ui.RenderResult(fetchOut.Bytes, fetchOut.Code, fetchOut.CodeText, m.Elapsed)
+
+	case "PowerShell", "powershell":
+		ui := toolui.NewBashToolUI(theme)
+		return ui.RenderResult(m.Content, m.ExitCode, m.Elapsed, width)
+
+	case "TodoWrite", "todo_write":
+		ui := toolui.NewTodoToolUI(theme)
+		// Extract items from ToolInput["todos"] (model's input), since the tool
+		// returns plain-text confirmation, not a JSON items array.
+		var items []toolui.TodoItemDisplay
+		if todosRaw, ok := m.ToolInput["todos"]; ok {
+			if b, err := json.Marshal(todosRaw); err == nil {
+				_ = json.Unmarshal(b, &items)
+			}
+		}
+		if len(items) > 0 && len(items) <= 8 {
+			return toolui.RenderResponseLine(theme.Dim.Render("Updated todos"), theme) + "\n" + ui.RenderTaskList(items, width)
+		}
+		if len(items) > 8 {
+			return ui.RenderCompact(items)
+		}
+		return renderGenericResult(connector, theme, m)
+
+	case "NotebookEdit", "notebook_edit":
+		if m.IsError {
+			return connector + theme.Error.Render(truncateToolOutput(m.Content, 5))
+		}
+		msg := "Applied"
+		if m.Elapsed > 0 {
+			msg += fmt.Sprintf(" (%s)", m.Elapsed.Truncate(time.Millisecond))
+		}
+		return toolui.RenderResponseLine(theme.Dim.Render(msg), theme)
+
+	case "Task", "task":
+		if m.IsError {
+			return connector + theme.Error.Render(truncateToolOutput(m.Content, 5))
+		}
+		return renderGenericResult(connector, theme, m)
+
+	case "REPL", "repl":
+		return renderGenericResult(connector, theme, m)
+
+	case "lsp", "LSP":
+		return renderGenericResult(connector, theme, m)
+
+	case "config":
+		return renderGenericResult(connector, theme, m)
+
+	default:
+		return renderGenericResult(connector, theme, m)
+	}
+}
+
+// renderGenericResult renders tool output with tree connectors, handling errors and truncation.
+func renderGenericResult(connector string, theme toolui.ToolUITheme, m ChatMessage) string {
+	if m.IsError {
+		return connector + theme.Error.Render(truncateToolOutput(m.Content, 5))
+	}
+	if m.Content == "" {
+		msg := "Done"
+		if m.Elapsed > 0 {
+			msg += fmt.Sprintf(" (%s)", m.Elapsed.Truncate(time.Millisecond))
+		}
+		return toolui.RenderResponseLine(theme.Dim.Render(msg), theme)
+	}
+	lines := strings.Split(m.Content, "\n")
+	if len(lines) <= 3 {
+		return connector + theme.Output.Render(m.Content)
+	}
+	// Show first few lines with tree connectors
+	var sb strings.Builder
+	maxShow := 5
+	if len(lines) < maxShow {
+		maxShow = len(lines)
+	}
+	for i := 0; i < maxShow; i++ {
+		if i == 0 {
+			sb.WriteString(connector + theme.Output.Render(lines[i]))
+		} else {
+			sb.WriteString("\n" + theme.TreeConn.Render("  │ ") + theme.Output.Render(lines[i]))
+		}
+	}
+	if len(lines) > maxShow {
+		sb.WriteString("\n" + theme.Dim.Render(fmt.Sprintf("  │ … (%d more lines)", len(lines)-maxShow)))
+	}
+	return sb.String()
 }
 
 // isLastToolUse returns true if messages[idx] is the last "tool_use" message.
@@ -1015,27 +1582,72 @@ func isLastToolUse(messages []ChatMessage, idx int) bool {
 }
 
 // toolUserFacingName returns the user-facing tool name matching claude-code-main.
-// This uses the short tool name ("Bash", "Read", "Update", etc.) not a description.
 func toolUserFacingName(name string) string {
 	switch name {
 	case "Bash", "bash":
 		return "Bash"
+	case "PowerShell", "powershell":
+		return "PowerShell"
 	case "Read", "read", "FileRead", "file_read":
 		return "Read"
 	case "Edit", "edit", "FileEdit", "file_edit":
 		return "Update"
 	case "Write", "write", "FileWrite", "file_write":
 		return "Write"
+	case "NotebookEdit", "notebook_edit":
+		return "NotebookEdit"
 	case "Glob", "glob":
 		return "Search"
 	case "Grep", "grep":
 		return "Grep"
-	case "ListDir", "list_dir":
-		return "LS"
 	case "WebSearch", "web_search":
-		return "WebSearch"
+		return "Search"
 	case "WebFetch", "web_fetch":
-		return "WebFetch"
+		return "Fetch"
+	case "TodoWrite", "todo_write":
+		return "TodoWrite"
+	case "Task", "task":
+		return "Task"
+	case "REPL", "repl":
+		return "REPL"
+	case "SendUserMessage", "Brief", "send_user_message":
+		return "Message"
+	case "lsp", "LSP":
+		return "LSP"
+	case "config", "Config":
+		return "Config"
+	case "Skill", "skill":
+		return "Skill"
+	case "Sleep", "sleep":
+		return "Sleep"
+	case "SendMessage", "send_message":
+		return "SendMessage"
+	case "RemoteTrigger", "remote_trigger":
+		return "Trigger"
+	case "ToolSearch", "tool_search":
+		return "ToolSearch"
+	case "TaskCreate", "task_create":
+		return "TaskCreate"
+	case "TaskGet", "task_get":
+		return "TaskGet"
+	case "TaskList", "task_list":
+		return "TaskList"
+	case "TaskUpdate", "task_update":
+		return "TaskUpdate"
+	case "TaskStop", "task_stop":
+		return "TaskStop"
+	case "task_output", "TaskOutput":
+		return "TaskOutput"
+	case "team_create", "TeamCreate":
+		return "TeamCreate"
+	case "team_delete", "TeamDelete":
+		return "TeamDelete"
+	case "enter_plan_mode", "EnterPlanMode":
+		return "PlanMode"
+	case "exit_plan_mode", "ExitPlanMode":
+		return "PlanMode"
+	case "AskUserQuestion":
+		return "Question"
 	default:
 		return name
 	}
@@ -1065,6 +1677,48 @@ func (a *App) AddSystemMessage(text string) {
 	a.messages = append(a.messages, ChatMessage{Role: "system", Content: text})
 	a.refreshViewport()
 	a.viewport.GotoBottom()
+}
+
+// countUniqueFiles estimates the number of unique file paths in grep-like output.
+func countUniqueFiles(output string) int {
+	if output == "" {
+		return 0
+	}
+	seen := make(map[string]bool)
+	for _, line := range strings.Split(output, "\n") {
+		// Grep output typically has "file:line:content" or "file:content"
+		if idx := strings.Index(line, ":"); idx > 0 {
+			seen[line[:idx]] = true
+		}
+	}
+	if len(seen) == 0 {
+		return 1
+	}
+	return len(seen)
+}
+
+// extractSedFile detects sed -i (in-place edit) commands and returns the file path.
+// Returns "" if the command is not a sed -i command.
+func extractSedFile(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+	if !strings.HasPrefix(cmd, "sed ") {
+		return ""
+	}
+	// Check for -i flag (with or without backup suffix like -i'' or -i.bak)
+	if !strings.Contains(cmd, " -i") {
+		return ""
+	}
+	// Extract the last argument as the file path
+	parts := strings.Fields(cmd)
+	if len(parts) < 3 {
+		return ""
+	}
+	last := parts[len(parts)-1]
+	// Skip if the last arg looks like a flag or expression
+	if strings.HasPrefix(last, "-") || strings.HasPrefix(last, "'") || strings.HasPrefix(last, "\"") {
+		return ""
+	}
+	return last
 }
 
 // truncateOutput shortens tool output for display.

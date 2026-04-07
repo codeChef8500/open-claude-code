@@ -48,7 +48,7 @@ func runPrintText(ctx context.Context, runner *session.Runner, prompt string) er
 	runner.OnToolStart = func(id, name, input string) {
 		fmt.Fprintf(os.Stderr, "\n⚙ %s %s\n", name, input)
 	}
-	runner.OnToolDone = func(id, output string, isError bool) {
+	runner.OnToolDone = func(id, name, output string, isError bool) {
 		if isError {
 			fmt.Fprintf(os.Stderr, "✗ tool error: %s\n", output)
 		}
@@ -86,9 +86,9 @@ func runPrintStreamJSON(ctx context.Context, runner *session.Runner, prompt stri
 			"id": id, "name": name, "input": input,
 		}})
 	}
-	runner.OnToolDone = func(id, output string, isError bool) {
+	runner.OnToolDone = func(id, name, output string, isError bool) {
 		_ = enc.Encode(streamEvent{Type: "tool_done", Content: map[string]interface{}{
-			"id": id, "output": output, "is_error": isError,
+			"id": id, "name": name, "output": output, "is_error": isError,
 		}})
 	}
 	runner.OnDone = func() {
@@ -122,7 +122,7 @@ func runPrintJSON(ctx context.Context, runner *session.Runner, prompt string) er
 		fullText += text
 	}
 	runner.OnToolStart = func(id, name, input string) {}
-	runner.OnToolDone = func(id, output string, isError bool) {}
+	runner.OnToolDone = func(id, name, output string, isError bool) {}
 	runner.OnDone = func() {}
 	runner.OnError = func(err error) {
 		fmt.Fprintf(os.Stderr, "⚠ %v\n", err)

@@ -69,6 +69,34 @@ type ProgressData struct {
 	ParentToolID string `json:"parent_tool_use_id,omitempty"`
 	Content      string `json:"content,omitempty"`
 	SpinnerMode  string `json:"spinner_mode,omitempty"` // "dots", "line", "hidden"
+
+	// Typed progress — exactly one of these is set, indicated by ProgressType.
+	ProgressType string                 `json:"progress_type,omitempty"` // "bash", "web_search", "web_fetch", "agent"
+	Bash         *BashProgressData      `json:"bash,omitempty"`
+	WebSearch    *WebSearchProgressData `json:"web_search,omitempty"`
+	WebFetch     *WebFetchProgressData  `json:"web_fetch,omitempty"`
+}
+
+// BashProgressData carries streaming progress for a Bash tool call.
+type BashProgressData struct {
+	OutputLines int `json:"output_lines"`
+	OutputBytes int `json:"output_bytes"`
+	ElapsedMs   int `json:"elapsed_ms"`
+}
+
+// WebSearchProgressData carries streaming progress for a WebSearch tool call.
+type WebSearchProgressData struct {
+	Query           string `json:"query,omitempty"`
+	ResultsReceived int    `json:"results_received,omitempty"` // 0 = still searching
+	DurationMs      int    `json:"duration_ms,omitempty"`
+}
+
+// WebFetchProgressData carries streaming progress for a WebFetch tool call.
+type WebFetchProgressData struct {
+	URL        string `json:"url,omitempty"`
+	Phase      string `json:"phase,omitempty"` // "connecting", "downloading", "processing"
+	BytesRead  int    `json:"bytes_read,omitempty"`
+	StatusCode int    `json:"status_code,omitempty"`
 }
 
 // AttachmentData carries metadata for an attachment message (memory, hook output, etc.).

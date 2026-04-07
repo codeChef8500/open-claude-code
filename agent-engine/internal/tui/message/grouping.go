@@ -1,6 +1,9 @@
 package message
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // GroupType identifies the kind of message group.
 type GroupType string
@@ -67,7 +70,7 @@ func GroupMessages(msgs []RenderableMessage) []MessageGroup {
 						count++
 					}
 				}
-				group.Label = formatGroupLabel(count, "file operation")
+				group.Label = formatReadSearchGroupLabel(group.Messages)
 				group.Collapsed = true
 				groups = append(groups, group)
 			} else {
@@ -127,4 +130,58 @@ func formatGroupLabel(count int, noun string) string {
 		return "1 " + noun
 	}
 	return fmt.Sprintf("%d %ss", count, noun)
+}
+
+// formatReadSearchGroupLabel generates a label like "Read 3 files, Grep 2 patterns"
+// matching claude-code-main's collapsible read/search group labels.
+func formatReadSearchGroupLabel(msgs []RenderableMessage) string {
+	counts := make(map[string]int)
+	for _, m := range msgs {
+		if m.Type == TypeToolUse {
+			counts[m.ToolName]++
+		}
+	}
+
+	var parts []string
+	for name, count := range counts {
+		switch name {
+		case "Read", "read":
+			parts = append(parts, formatGroupLabel(count, "file read"))
+		case "Grep", "grep":
+			parts = append(parts, formatGroupLabel(count, "grep search"))
+		case "Glob", "glob":
+			parts = append(parts, formatGroupLabel(count, "glob pattern"))
+		case "WebSearch", "web_search":
+			parts = append(parts, formatGroupLabel(count, "web search"))
+		default:
+			parts = append(parts, formatGroupLabel(count, name))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// RenderCollapsedGroup renders a collapsed group as a single summary line:
+//
+//	● Read 3 files, Grep 2 patterns
+func RenderCollapsedGroup(group MessageGroup, opts RenderOpts) string {
+	s := opts.styles()
+	if group.Label == "" {
+		group.Label = "collapsed operations"
+	}
+	return s.Dim.Render("● " + group.Label)
+}
+
+// RenderMessageGroupRow renders a message group.
+// If collapsed, renders a single summary line.
+// If expanded, renders each message individually.
+func RenderMessageGroupRow(group MessageGroup, opts RenderOpts) string {
+	if group.Collapsed {
+		return RenderCollapsedGroup(group, opts)
+	}
+
+	var lines []string
+	for _, msg := range group.Messages {
+		lines = append(lines, RenderMessageRow(msg, opts))
+	}
+	return strings.Join(lines, "\n")
 }

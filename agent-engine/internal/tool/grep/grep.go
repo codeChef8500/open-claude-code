@@ -342,3 +342,12 @@ func goGrep(ctx context.Context, in Input, root string) (string, error) {
 	}
 	return sb.String(), nil
 }
+
+// MapToolResultToBlockParam formats the grep result for the model.
+func (t *GrepTool) MapToolResultToBlockParam(content interface{}, toolUseID string) *engine.ContentBlock {
+	text, ok := content.(string)
+	if !ok {
+		return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: ""}
+	}
+	return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: text}
+}

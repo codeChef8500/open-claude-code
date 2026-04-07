@@ -101,8 +101,11 @@ func wireRunnerCallbacks(runner *session.Runner, p *tea.Program) {
 	runner.OnToolStart = func(id, name, input string) {
 		p.Send(tui.ToolStartMsg{ToolID: id, ToolName: name, Input: input})
 	}
-	runner.OnToolDone = func(id, output string, isError bool) {
-		p.Send(tui.ToolDoneMsg{ToolID: id, Output: output, IsError: isError})
+	runner.OnToolDone = func(id, name, output string, isError bool) {
+		p.Send(tui.ToolDoneMsg{ToolID: id, ToolName: name, Output: output, IsError: isError})
+	}
+	runner.OnToolProgress = func(id, name, content string) {
+		p.Send(tui.ToolProgressMsg{ToolID: id, ToolName: name, Content: content})
 	}
 	runner.OnDone = func() {
 		p.Send(tui.StreamDoneMsg{})

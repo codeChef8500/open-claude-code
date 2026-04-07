@@ -62,6 +62,17 @@ func (t *GlobTool) InputSchema() json.RawMessage {
 	}`)
 }
 
+func (t *GlobTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"files":{"type":"array","items":{"type":"string"},"description":"Matching file paths."},
+			"count":{"type":"integer","description":"Number of matching files."},
+			"truncated":{"type":"boolean","description":"Whether results were truncated."}
+		}
+	}`)
+}
+
 func (t *GlobTool) Prompt(_ *tool.UseContext) string {
 	return `Search for files and subdirectories within a specified directory using glob patterns.
 Search uses smart case and will ignore gitignored files by default.
@@ -126,6 +137,17 @@ func (t *GlobTool) Call(_ context.Context, input json.RawMessage, uctx *tool.Use
 		root = filepath.ToSlash(root)
 
 		pattern := in.Pattern
+
+		// suggestPathUnderCwd: if the pattern looks like a path (starts with /
+		// or contains path separators but no glob chars), hint the user.
+		if looksLikePath(pattern) {
+			ch <- &engine.ContentBlock{
+				Type: engine.ContentTypeText,
+				Text: fmt.Sprintf("Hint: %q looks like a file path. Use the path parameter for the directory and put only the glob pattern in pattern. E.g. path=%q pattern=\"**/*\"", pattern, pattern),
+			}
+			return
+		}
+
 		if !strings.Contains(pattern, "/") {
 			pattern = "**/" + pattern
 		}
@@ -179,4 +201,30 @@ func (t *GlobTool) Call(_ context.Context, input json.RawMessage, uctx *tool.Use
 		ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: out}
 	}()
 	return ch, nil
+}
+
+// looksLikePath returns true if the pattern looks like a filesystem path rather
+// than a glob pattern — e.g. starts with "/" or "C:\" and contains no glob chars.
+func looksLikePath(pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	hasGlob := strings.ContainsAny(pattern, "*?[{")
+	if hasGlob {
+		return false
+	}
+	// Absolute path indicators.
+	if filepath.IsAbs(pattern) {
+		return true
+	}
+	return false
+}
+
+// MapToolResultToBlockParam formats the glob result for the model.
+func (t *GlobTool) MapToolResultToBlockParam(content interface{}, toolUseID string) *engine.ContentBlock {
+	text, ok := content.(string)
+	if !ok {
+		return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: ""}
+	}
+	return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: text}
 }

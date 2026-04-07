@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -48,6 +49,15 @@ type ChatMessage struct {
 	Content  string
 	ToolName string // for tool_use / tool_result messages
 	IsError  bool   // for tool_result errors
+
+	// Enhanced fields for toolui rendering
+	ToolInput       map[string]interface{} // parsed JSON input (tool_use)
+	ExitCode        int                    // bash exit code (tool_result)
+	Elapsed         time.Duration          // elapsed time (tool_result)
+	StartTime       time.Time              // when tool started (tool_use)
+	DotState        int                    // 0=queued, 1=active, 2=success, 3=error (matches toolui.DotState)
+	ToolID          string                 // tool call ID for matching start/done
+	ProgressContent string                 // latest streaming progress output (tool_use, updated by ToolProgressMsg)
 }
 
 // ── Bubbletea messages ────────────────────────────────────────────────────────
@@ -77,9 +87,18 @@ type ToolStartMsg struct {
 
 // ToolDoneMsg signals that a tool call has completed.
 type ToolDoneMsg struct {
-	ToolID  string
-	Output  string
-	IsError bool
+	ToolID   string
+	ToolName string
+	Output   string
+	IsError  bool
+	ExitCode int
+}
+
+// ToolProgressMsg carries incremental progress from a running tool.
+type ToolProgressMsg struct {
+	ToolID   string
+	ToolName string
+	Content  string // latest output line(s)
 }
 
 // SystemMsg carries a system-level message for display.

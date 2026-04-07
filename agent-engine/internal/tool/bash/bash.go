@@ -16,8 +16,27 @@ import (
 
 const (
 	defaultTimeout = 120_000 // 2 minutes in ms
-	maxOutputChars = 100_000
+	maxOutputChars = 30_000  // tool result persistence threshold, matches claude-code
+
+	// ProgressThresholdMs is the delay before progress output is shown (2s).
+	ProgressThresholdMs = 2000
 )
+
+// Output is the structured output of a Bash call.
+type Output struct {
+	Stdout      string `json:"stdout"`
+	Stderr      string `json:"stderr"`
+	ExitCode    int    `json:"exitCode"`
+	Interrupted bool   `json:"interrupted"`
+}
+
+// SedEditInfo describes a parsed sed in-place edit command.
+type SedEditInfo struct {
+	FilePath    string
+	Pattern     string
+	Replacement string
+	Flags       string
+}
 
 // Input is the JSON input schema for BashTool.
 type Input struct {
@@ -94,6 +113,18 @@ func (t *BashTool) InputSchema() json.RawMessage {
 			"run_in_background":{"type":"boolean","description":"If true, run the command in the background and return immediately with the process ID."}
 		},
 		"required":["command"]
+	}`)
+}
+
+func (t *BashTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"stdout":{"type":"string","description":"The standard output of the command."},
+			"stderr":{"type":"string","description":"The standard error output of the command."},
+			"exitCode":{"type":"integer","description":"The exit code of the command."},
+			"interrupted":{"type":"boolean","description":"Whether the command was interrupted."}
+		}
 	}`)
 }
 
@@ -222,7 +253,161 @@ func (t *BashTool) Call(ctx context.Context, input json.RawMessage, uctx *tool.U
 	return ch, nil
 }
 
-var sedInPlaceRe = regexp.MustCompile(`sed\s+-i(?:\s+|['"]).*?\s+([^\s;|&]+)`)
+// sedInPlaceRe matches sed -i commands and captures the file path.
+var sedInPlaceRe = regexp.MustCompile(`sed\s+(?:-[Ern]*\s+)*-i(?:['"]\S*['"]|\S*)\s+(?:-[Ern]*\s+)*(?:'[^']*'|"[^"]*"|\S+)\s+([^\s;|&]+)`)
+
+// parseSedSubstitution parses a sed substitution expression: s/pattern/replacement/flags.
+// Returns (pattern, replacement, flags, ok).
+func parseSedSubstitution(expr string) (string, string, string, bool) {
+	if len(expr) < 4 || expr[0] != 's' {
+		return "", "", "", false
+	}
+	delim := expr[1]
+	rest := expr[2:]
+
+	// Find pattern (up to unescaped delimiter).
+	pattern, after, ok := splitAtUnescaped(rest, delim)
+	if !ok {
+		return "", "", "", false
+	}
+	// Find replacement (up to unescaped delimiter).
+	replacement, flags, ok := splitAtUnescaped(after, delim)
+	if !ok {
+		return "", "", "", false
+	}
+	// Validate flags.
+	for _, c := range flags {
+		switch c {
+		case 'g', 'p', 'i', 'm', 'I', 'M':
+		default:
+			if c >= '1' && c <= '9' {
+				continue
+			}
+			return "", "", "", false
+		}
+	}
+	return pattern, replacement, flags, true
+}
+
+// splitAtUnescaped splits s at the first unescaped occurrence of delim.
+func splitAtUnescaped(s string, delim byte) (before, after string, ok bool) {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++ // skip escaped char
+			continue
+		}
+		if s[i] == delim {
+			return s[:i], s[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+// ParseSedEditCommand attempts to parse a simple sed -i substitution command.
+// Returns nil if the command is not a recognizable sed in-place edit.
+func ParseSedEditCommand(command string) *SedEditInfo {
+	trimmed := strings.TrimSpace(command)
+	if !strings.HasPrefix(trimmed, "sed ") {
+		return nil
+	}
+
+	fields := strings.Fields(trimmed)
+	var (
+		hasInPlace bool
+		extExpr    string
+		filePath   string
+	)
+
+	i := 1 // skip "sed"
+	for i < len(fields) {
+		arg := fields[i]
+		switch {
+		case arg == "-i" || arg == "--in-place":
+			hasInPlace = true
+			i++
+			// macOS: -i '' or -i .bak
+			if i < len(fields) {
+				next := fields[i]
+				if next == "''" || next == `""` || strings.HasPrefix(next, ".") {
+					i++
+				}
+			}
+		case strings.HasPrefix(arg, "-i"):
+			hasInPlace = true
+			i++
+		case arg == "-E" || arg == "-r" || arg == "--regexp-extended":
+			i++
+		case arg == "-e" || arg == "--expression":
+			if extExpr != "" {
+				return nil // multiple expressions
+			}
+			if i+1 >= len(fields) {
+				return nil
+			}
+			extExpr = fields[i+1]
+			i += 2
+		case strings.HasPrefix(arg, "-"):
+			return nil // unknown flag
+		default:
+			if extExpr == "" {
+				extExpr = arg
+			} else if filePath == "" {
+				filePath = arg
+			} else {
+				return nil // multiple files
+			}
+			i++
+		}
+	}
+
+	if !hasInPlace || extExpr == "" || filePath == "" {
+		return nil
+	}
+
+	// Strip surrounding quotes from expression.
+	extExpr = stripQuotes(extExpr)
+
+	// Parse substitution: s/pattern/replacement/flags
+	pattern, replacement, flags, ok := parseSedSubstitution(extExpr)
+	if !ok {
+		return nil
+	}
+
+	return &SedEditInfo{
+		FilePath:    filePath,
+		Pattern:     pattern,
+		Replacement: replacement,
+		Flags:       flags,
+	}
+}
+
+func stripQuotes(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
+}
+
+// ExtractBashCommentLabel extracts a human-readable label from the first line
+// of a bash command if it starts with a # comment (not a #! shebang).
+// Returns empty string if no comment label is found.
+func ExtractBashCommentLabel(command string) string {
+	nl := strings.IndexByte(command, '\n')
+	firstLine := command
+	if nl >= 0 {
+		firstLine = command[:nl]
+	}
+	firstLine = strings.TrimSpace(firstLine)
+	if !strings.HasPrefix(firstLine, "#") || strings.HasPrefix(firstLine, "#!") {
+		return ""
+	}
+	// Strip leading # characters and whitespace.
+	label := strings.TrimLeft(firstLine, "#")
+	label = strings.TrimSpace(label)
+	return label
+}
 
 // trackSedEdits detects sed -i commands and invalidates the file read cache
 // for any files that were modified in-place.
@@ -230,6 +415,12 @@ func trackSedEdits(command string, uctx *tool.UseContext) {
 	if !strings.Contains(command, "sed") {
 		return
 	}
+	// Try the structured parser first.
+	if info := ParseSedEditCommand(command); info != nil {
+		fileread.InvalidateCache(info.FilePath)
+		return
+	}
+	// Fallback to regex.
 	matches := sedInPlaceRe.FindAllStringSubmatch(command, -1)
 	for _, m := range matches {
 		if len(m) > 1 {
@@ -298,6 +489,16 @@ func classifyBashCommand(command string) engine.SearchOrReadInfo {
 	return engine.SearchOrReadInfo{}
 }
 
+// MapToolResultToBlockParam formats the bash result for the model,
+// including exit code metadata when non-zero.
+func (t *BashTool) MapToolResultToBlockParam(content interface{}, toolUseID string) *engine.ContentBlock {
+	text, ok := content.(string)
+	if !ok {
+		return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: ""}
+	}
+	return &engine.ContentBlock{Type: engine.ContentTypeToolResult, ToolUseID: toolUseID, Text: text}
+}
+
 func buildOutput(r *util.ExecResult) string {
 	out := r.Stdout
 	if r.Stderr != "" {
@@ -310,7 +511,7 @@ func buildOutput(r *util.ExecResult) string {
 		out = out[:maxOutputChars] + "\n[... output truncated ...]"
 	}
 	if r.ExitCode != 0 {
-		out += fmt.Sprintf("\n\nExit code: %d", r.ExitCode)
+		out += fmt.Sprintf("\nExit code %d", r.ExitCode)
 	}
 	if out == "" {
 		out = "(no output)"
