@@ -12,8 +12,13 @@ import (
 )
 
 const (
-	maxTurns                     = 100
+	// defaultMaxTurns is the maximum number of tool-use turns before the loop exits.
+	defaultMaxTurns = 100
+	// maxOutputTokensRecoveryLimit is the max multi-turn recovery retries for max_output_tokens.
 	maxOutputTokensRecoveryLimit = 3
+	// escalatedMaxTokens is the output token limit used when OTK escalation is triggered.
+	// Aligned with claude-code-main ESCALATED_MAX_TOKENS.
+	escalatedMaxTokens = 64000
 )
 
 // QueryTracking holds query chain tracking state.
@@ -22,22 +27,81 @@ type QueryTracking struct {
 	Depth   int    `json:"depth"`
 }
 
-// loopState tracks the internal state of a single query loop execution.
+// loopState tracks the mutable state of a single query loop iteration.
+// Aligned with the TS State type in query.ts:204-217.
+// Each iteration may replace the entire loopState when continuing.
 type loopState struct {
-	messages     []*Message
+	// messages is the current conversation history for this iteration.
+	messages []*Message
+
+	// promptResult holds the built system prompt (populated once, reused).
 	promptResult SystemPromptResult
-	stopReason   string
-	turnCount    int
+
+	// stopReason is the last stop_reason from an assistant message.
+	stopReason string
+
+	// turnCount is the current turn number (1-indexed).
+	turnCount int
+
 	// tokenBudget is updated with real token counts from EventUsage events.
 	tokenBudget TokenBudgetState
+
 	// queryTracking tracks the query chain for analytics/debugging.
 	queryTracking QueryTracking
-	// maxOutputRecoveryCount tracks how many times we retried after truncation.
-	maxOutputRecoveryCount int
+
+	// ── Recovery & continuation state (aligned with TS State) ──────────
+
+	// maxOutputTokensRecoveryCount tracks how many times we retried after
+	// max_output_tokens truncation (cap: maxOutputTokensRecoveryLimit).
+	maxOutputTokensRecoveryCount int
+
+	// hasAttemptedReactiveCompact is true if reactive compact was tried
+	// for prompt-too-long recovery this iteration.
+	hasAttemptedReactiveCompact bool
+
+	// maxOutputTokensOverride, if non-nil, overrides the default max output
+	// tokens for the next API call (used by OTK escalation).
+	maxOutputTokensOverride *int
+
+	// pendingToolUseSummary receives a tool-use summary from the previous
+	// iteration (generated async, consumed at the start of the next).
+	pendingToolUseSummary <-chan *ToolUseSummaryMessage
+
 	// stopHookActive is true when a stop hook forced a retry.
 	stopHookActive bool
+
 	// hookPreventedContinuation is set if a tool hook blocked continuation.
 	hookPreventedContinuation bool
+
+	// transition records why the previous iteration continued instead of
+	// terminating. nil on the first iteration.
+	transition *ContinueTransition
+
+	// ── Auto-compact tracking ──────────────────────────────────────────
+
+	// autoCompactTracking is per-chain tracking state for auto-compaction.
+	autoCompactTracking *AutoCompactTrackingState
+}
+
+// AutoCompactTrackingState tracks compaction state across turns.
+// Aligned with claude-code-main AutoCompactTrackingState.
+type AutoCompactTrackingState struct {
+	// Compacted is true if compaction has been performed in this chain.
+	Compacted bool
+	// TurnCounter counts turns since the last compaction.
+	TurnCounter int
+	// TurnID identifies this compaction chain for analytics.
+	TurnID string
+	// ConsecutiveFailures counts successive compaction failures.
+	ConsecutiveFailures int
+}
+
+// ToolUseSummaryMessage is a message carrying a tool use summary.
+type ToolUseSummaryMessage struct {
+	// Summary is the human-readable summary text.
+	Summary string
+	// PrecedingToolUseIDs are the tool_use IDs this summary covers.
+	PrecedingToolUseIDs []string
 }
 
 // resolveModel returns the effective model name for this query.
@@ -120,7 +184,11 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		}
 	}()
 
-	for ls.turnCount < maxTurns {
+	effMaxTurns := defaultMaxTurns
+	if qcfg.MaxTurns > 0 {
+		effMaxTurns = qcfg.MaxTurns
+	}
+	for ls.turnCount < effMaxTurns {
 		ls.turnCount++
 		e.session.IncrTurn()
 
@@ -225,10 +293,10 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		if len(toolCalls) == 0 {
 			// Max output tokens recovery: if the model was truncated, inject
 			// a recovery message and retry.
-			if ls.stopReason == "max_tokens" && ls.maxOutputRecoveryCount < maxOutputTokensRecoveryLimit {
-				ls.maxOutputRecoveryCount++
+			if ls.stopReason == "max_tokens" && ls.maxOutputTokensRecoveryCount < maxOutputTokensRecoveryLimit {
+				ls.maxOutputTokensRecoveryCount++
 				slog.Info("queryloop: max_tokens recovery",
-					slog.Int("attempt", ls.maxOutputRecoveryCount))
+					slog.Int("attempt", ls.maxOutputTokensRecoveryCount))
 				recoveryMsg := &Message{
 					ID:   uuid.New().String(),
 					Role: RoleUser,
@@ -287,7 +355,7 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 
 		// ── 10. Execute tool calls and append results ─────────────
 		ls.stopHookActive = false // reset for next potential stop
-		ls.maxOutputRecoveryCount = 0
+		ls.maxOutputTokensRecoveryCount = 0
 
 		toolResultMsg, err := executeToolCalls(ctx, e, toolCalls, qdeps.ExtraTools, out)
 		if err != nil {
@@ -309,7 +377,7 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		}
 	}
 
-	loopErr = fmt.Errorf("exceeded maximum turn limit (%d)", maxTurns)
+	loopErr = fmt.Errorf("exceeded maximum turn limit (%d)", effMaxTurns)
 	return loopErr
 }
 
