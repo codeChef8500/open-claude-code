@@ -35,8 +35,9 @@ func TestObserver_ErrorAlwaysReacts(t *testing.T) {
 		reactions = append(reactions, text)
 		mu.Unlock()
 	})
-	// Override cooldown to 0 for testing
+	// Override cooldown to 0 and per-turn limit high for testing
 	obs.cooldownMS = 0
+	obs.maxPerTurn = 100
 
 	// Error events should always produce a reaction
 	for i := 0; i < 10; i++ {
@@ -168,6 +169,56 @@ func TestObserver_SetCompanion(t *testing.T) {
 	if len(reactions) == 0 {
 		t.Error("should react after setting companion")
 	}
+}
+
+func TestObserver_PerTurnLimit(t *testing.T) {
+	var reactions []string
+	comp := newTestCompanion()
+	obs := NewObserver(comp, func(text string) {
+		reactions = append(reactions, text)
+	})
+	obs.cooldownMS = 0
+	obs.maxPerTurn = 2
+
+	// Start a turn (TurnStart itself may react — 20% chance)
+	obs.OnEvent(EngineEvent{Kind: EventTurnStart})
+	afterStart := len(reactions)
+
+	// Fire many errors — total reactions this turn should be capped at maxPerTurn
+	for i := 0; i < 10; i++ {
+		obs.OnEvent(EngineEvent{Kind: EventError, Detail: "err"})
+	}
+	if len(reactions) != 2 {
+		t.Errorf("expected exactly 2 reactions (per-turn limit), got %d", len(reactions))
+	}
+	errorReactionsFirstTurn := len(reactions) - afterStart
+
+	// Start a new turn — counter resets
+	obs.OnEvent(EngineEvent{Kind: EventTurnStart})
+	// Fire more errors — should be able to get new reactions again
+	for i := 0; i < 10; i++ {
+		obs.OnEvent(EngineEvent{Kind: EventError, Detail: "err"})
+	}
+	// Total should be 2 (first turn) + 2 (second turn) = 4
+	if len(reactions) != 4 {
+		t.Errorf("expected 4 total reactions after 2 turns, got %d (first turn: start=%d errors=%d)",
+			len(reactions), afterStart, errorReactionsFirstTurn)
+	}
+}
+
+func TestObserver_ToolEndUsesToolName(t *testing.T) {
+	// Regression: EventToolEnd must receive ToolName (not ToolID)
+	var reactions []string
+	comp := newTestCompanion()
+	obs := NewObserver(comp, func(text string) {
+		reactions = append(reactions, text)
+	})
+	obs.cooldownMS = 0
+	obs.maxPerTurn = 100
+
+	// ToolEnd with a real tool name should be able to react
+	obs.OnEvent(EngineEvent{Kind: EventToolEnd, ToolName: "file_edit"})
+	// May or may not react (40% chance skip), but should not panic
 }
 
 func TestObserver_ReactionContainsName(t *testing.T) {

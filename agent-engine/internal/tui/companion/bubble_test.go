@@ -83,39 +83,84 @@ func TestBubbleBoxWidth_NonEmpty(t *testing.T) {
 
 func TestCompanionReservedColumns_Narrow(t *testing.T) {
 	// Below MinColsFull → 0
-	if r := CompanionReservedColumns(50, true, 5, false); r != 0 {
+	if r := CompanionReservedColumns(50, true, 12, false); r != 0 {
 		t.Errorf("expected 0 for narrow terminal, got %d", r)
 	}
 }
 
 func TestCompanionReservedColumns_Wide_NotSpeaking(t *testing.T) {
-	r := CompanionReservedColumns(120, false, 5, false)
-	// spriteW = max(12, 5+2=7, 16) = 16, + 2 padding = 18, no bubble
-	if r != 18 {
-		t.Errorf("expected 18, got %d", r)
+	// spriteColWidth=12, + 2 padding = 14, no bubble
+	r := CompanionReservedColumns(120, false, 12, false)
+	if r != 14 {
+		t.Errorf("expected 14, got %d", r)
 	}
 }
 
 func TestCompanionReservedColumns_Wide_Speaking(t *testing.T) {
-	r := CompanionReservedColumns(120, true, 5, false)
-	// 18 + BubbleWidth(36) = 54
-	if r != 54 {
-		t.Errorf("expected 54, got %d", r)
+	// spriteColWidth=12, + 2 padding + BubbleWidth(36) = 50
+	r := CompanionReservedColumns(120, true, 12, false)
+	if r != 50 {
+		t.Errorf("expected 50, got %d", r)
 	}
 }
 
 func TestCompanionReservedColumns_Fullscreen_Speaking(t *testing.T) {
-	r := CompanionReservedColumns(120, true, 5, true)
-	// Fullscreen suppresses inline bubble → just 18
-	if r != 18 {
-		t.Errorf("expected 18 (fullscreen suppresses bubble), got %d", r)
+	// Fullscreen suppresses inline bubble → just spriteColWidth(12) + 2 = 14
+	r := CompanionReservedColumns(120, true, 12, true)
+	if r != 14 {
+		t.Errorf("expected 14 (fullscreen suppresses bubble), got %d", r)
 	}
 }
 
-func TestCompanionReservedColumns_LongName(t *testing.T) {
-	r := CompanionReservedColumns(120, false, 15, false)
-	// spriteW = max(12, 15+2=17) = 17, + 2 = 19
+func TestCompanionReservedColumns_WideSpriteCol(t *testing.T) {
+	// spriteColWidth=17 (long name/info row), + 2 padding = 19
+	r := CompanionReservedColumns(120, false, 17, false)
 	if r != 19 {
-		t.Errorf("expected 19 for long name, got %d", r)
+		t.Errorf("expected 19, got %d", r)
+	}
+}
+
+func TestBubbleMaxWidth_MatchesTS(t *testing.T) {
+	// TS wraps at 30 chars. A line of exactly 30 chars should fit in one line.
+	text := "aaaaaaaaa bbbbbbbbb ccccccccc" // 29 chars, fits in one wrap line
+	lines := RenderBubble(text, false, TailRight)
+	// Should be exactly 3 lines: top border, 1 content line, bottom border
+	if len(lines) != 3 {
+		t.Errorf("expected 3 lines for text within bubbleMaxWidth, got %d", len(lines))
+	}
+}
+
+func TestBubbleMaxWidth_WrapsLongLine(t *testing.T) {
+	// A text that exceeds 30 chars should wrap
+	text := "aaaaaaaaa bbbbbbbbb ccccccccc ddddddddd" // 39 chars
+	lines := RenderBubble(text, false, TailRight)
+	// Should be 4 lines: top border, 2 content lines, bottom border
+	if len(lines) != 4 {
+		t.Errorf("expected 4 lines for wrapped text, got %d", len(lines))
+	}
+}
+
+func TestCenterText_Unicode(t *testing.T) {
+	// Unicode characters should be counted by rune, not byte
+	result := centerText("★★★", 12)
+	// 3 runes → pad = (12-3)/2 = 4 spaces
+	if result != "    ★★★" {
+		t.Errorf("centerText unicode: got %q", result)
+	}
+}
+
+func TestCenterText_ASCII(t *testing.T) {
+	result := centerText("hi", 10)
+	// 2 chars → pad = (10-2)/2 = 4 spaces
+	if result != "    hi" {
+		t.Errorf("centerText ascii: got %q", result)
+	}
+}
+
+func TestCenterText_OverWidth(t *testing.T) {
+	result := centerText("long string here", 5)
+	// Wider than width → returned as-is
+	if result != "long string here" {
+		t.Errorf("centerText over-width: got %q", result)
 	}
 }

@@ -221,95 +221,151 @@ func (m Model) FloatingBubbleView() string {
 
 func (m Model) renderFull() string {
 	frame := m.currentFrame()
-	spriteLines := buddy.RenderSprite(m.companion.CompanionBones, frame)
+	spriteBody := buddy.RenderSprite(m.companion.CompanionBones, frame)
 
 	// Blink: replace eye with '-'
 	if m.animState == AnimBlink {
 		eye := string(m.companion.Eye)
-		for i, l := range spriteLines {
-			spriteLines[i] = strings.ReplaceAll(l, eye, "-")
+		for i, l := range spriteBody {
+			spriteBody[i] = strings.ReplaceAll(l, eye, "-")
 		}
 	}
 
-	// Prepend heart frames if petting
+	// Prepend heart frames if petting (TS: PET_HEARTS[petAge % PET_HEARTS.length])
+	petting := false
 	if m.petAt > 0 {
-		elapsed := (m.tick - m.petStartTick) * TickMS
-		if elapsed < PetBurstMS && elapsed >= 0 {
-			heartIdx := elapsed / (PetBurstMS / len(HeartFrames))
-			if heartIdx >= len(HeartFrames) {
-				heartIdx = len(HeartFrames) - 1
-			}
-			spriteLines = append([]string{HeartFrames[heartIdx]}, spriteLines...)
+		petAge := m.tick - m.petStartTick
+		if petAge*TickMS < PetBurstMS && petAge >= 0 {
+			petting = true
+			heartIdx := petAge % len(HeartFrames)
+			spriteBody = append([]string{HeartFrames[heartIdx]}, spriteBody...)
 		}
 	}
 
-	// Rarity color for sprite lines
+	// Rarity color for sprite lines (TS: each line gets rarity color;
+	// heart line uses autoAccept instead)
 	rarityColor := buddy.RarityHexColors[m.companion.Rarity]
 	spriteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(rarityColor))
-	for i, l := range spriteLines {
-		spriteLines[i] = spriteStyle.Render(l)
+	for i, l := range spriteBody {
+		if i == 0 && petting {
+			heartStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4eba65"))
+			spriteBody[i] = heartStyle.Render(l)
+		} else {
+			spriteBody[i] = spriteStyle.Render(l)
+		}
 	}
 
-	// Add styled name below sprite
+	// Build info column (placed to the right of sprite body, bottom-aligned)
+	// This keeps total height = sprite body height, avoiding clipping.
+	var infoLines []string
+	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(rarityColor)).Faint(true)
+
+	// Name
 	name := m.companion.Name
 	if name != "" {
 		nameStyle := lipgloss.NewStyle().Italic(true)
 		if m.focused {
-			nameStyle = nameStyle.Bold(true).Reverse(true)
+			nameStyle = nameStyle.Bold(true).Reverse(true).Foreground(lipgloss.Color(rarityColor))
 			name = " " + name + " "
 		} else {
-			nameStyle = nameStyle.Foreground(lipgloss.Color(rarityColor)).Faint(true)
+			nameStyle = nameStyle.Faint(true)
 		}
-		spriteLines = append(spriteLines, centerText(nameStyle.Render(name), 12))
+		infoLines = append(infoLines, nameStyle.Render(name))
 	}
 
-	// Rarity stars below name
+	// Rarity stars + species
 	stars := buddy.RarityStars[m.companion.Rarity]
-	starStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(rarityColor))
-	spriteLines = append(spriteLines, centerText(starStyle.Render(stars+" "+string(m.companion.Rarity)), 12))
+	species := string(m.companion.Species)
+	infoLines = append(infoLines, infoStyle.Render(stars+" "+species))
 
-	// Stats mini bars below rarity
-	barStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(rarityColor))
-	dimStyle := lipgloss.NewStyle().Faint(true)
+	// Top stat
+	topStat := ""
+	topVal := -1
 	for _, sn := range buddy.AllStatNames {
-		val := m.companion.Stats[sn]
-		filled := val * 6 / 100
-		if filled > 6 {
-			filled = 6
+		if v := m.companion.Stats[sn]; v > topVal {
+			topVal = v
+			topStat = statAbbrev[sn]
 		}
-		empty := 6 - filled
-		bar := barStyle.Render(strings.Repeat("█", filled)) + dimStyle.Render(strings.Repeat("░", empty))
-		abbr := statAbbrev[sn]
-		line := fmt.Sprintf("%s %s %2d", abbr, bar, val)
-		spriteLines = append(spriteLines, line)
 	}
+	if topStat != "" {
+		infoLines = append(infoLines, infoStyle.Render(fmt.Sprintf("%s:%d", topStat, topVal)))
+	}
+
+	// Personality (truncated)
+	if m.companion.Personality != "" {
+		pers := m.companion.Personality
+		const maxPersLen = 14
+		if utf8.RuneCountInString(pers) > maxPersLen {
+			pers = string([]rune(pers)[:maxPersLen-1]) + "…"
+		}
+		persStyle := lipgloss.NewStyle().Italic(true).Faint(true)
+		infoLines = append(infoLines, persStyle.Render("\""+pers+"\""))
+	}
+
+	// Combine: sprite body (left) + info (right), bottom-aligned
+	combined := joinSideBySide(spriteBody, infoLines, 2)
 
 	// In fullscreen mode, the inline bubble is suppressed (handled by FloatingBubbleView).
-	// In normal mode, render bubble to the left of the sprite (side-by-side).
+	// In normal mode, render bubble to the left of the sprite+info block.
 	if !m.fullscreen && m.IsSpeaking() {
 		ticksSinceSpoke := m.tick - m.lastSpokeTick
 		fading := ticksSinceSpoke >= (BubbleShow - FadeWindow)
 		bubbleLines := RenderBubble(m.reaction, fading, TailRight)
 		if len(bubbleLines) > 0 {
-			return joinHorizontal(bubbleLines, spriteLines, 1)
+			return joinHorizontal(bubbleLines, combined, 1)
 		}
 	}
 
-	return strings.Join(spriteLines, "\n")
+	return strings.Join(combined, "\n")
 }
 
-// joinHorizontal places left and right string slices side-by-side with a gap.
-func joinHorizontal(left, right []string, gap int) string {
-	// Find max width of left block
+// joinSideBySide places left and right slices side-by-side,
+// bottom-aligning the right column to the left column.
+// Uses lipgloss.Width for ANSI-aware measurement.
+func joinSideBySide(left, right []string, gap int) []string {
 	leftW := 0
 	for _, l := range left {
-		w := utf8.RuneCountInString(l)
-		if w > leftW {
+		if w := lipgloss.Width(l); w > leftW {
 			leftW = w
 		}
 	}
 
-	// Determine total height
+	height := len(left)
+	if len(right) > height {
+		height = len(right)
+	}
+
+	padStr := strings.Repeat(" ", gap)
+	rightOffset := height - len(right) // bottom-align right column
+
+	result := make([]string, 0, height)
+	for i := 0; i < height; i++ {
+		var l, r string
+		if i < len(left) {
+			l = left[i]
+		}
+		if ri := i - rightOffset; ri >= 0 && ri < len(right) {
+			r = right[ri]
+		}
+		pad := leftW - lipgloss.Width(l)
+		if pad < 0 {
+			pad = 0
+		}
+		result = append(result, l+strings.Repeat(" ", pad)+padStr+r)
+	}
+	return result
+}
+
+// joinHorizontal places left and right string slices side-by-side with a gap.
+// Uses lipgloss.Width for ANSI-aware measurement.
+func joinHorizontal(left, right []string, gap int) string {
+	leftW := 0
+	for _, l := range left {
+		if w := lipgloss.Width(l); w > leftW {
+			leftW = w
+		}
+	}
+
 	height := len(left)
 	if len(right) > height {
 		height = len(right)
@@ -325,8 +381,7 @@ func joinHorizontal(left, right []string, gap int) string {
 		if i < len(right) {
 			r = right[i]
 		}
-		// Pad left line to leftW
-		pad := leftW - utf8.RuneCountInString(l)
+		pad := leftW - lipgloss.Width(l)
 		if pad < 0 {
 			pad = 0
 		}
@@ -355,21 +410,31 @@ func (m Model) renderNarrow() string {
 		face = strings.ReplaceAll(face, eye, "-")
 	}
 
-	// Petting: prepend heart
+	// Petting: prepend heart with autoAccept color (TS: color="autoAccept")
+	petting := false
 	if m.petAt > 0 {
-		elapsed := (m.tick - m.petStartTick) * TickMS
-		if elapsed < PetBurstMS && elapsed >= 0 {
-			face = "♥ " + face
+		petAge := m.tick - m.petStartTick
+		if petAge*TickMS < PetBurstMS && petAge >= 0 {
+			petting = true
 		}
 	}
 
 	// Style the face with rarity color + bold
 	faceStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(rarityColor))
-	styledFace := faceStyle.Render(face)
+	styledFace := ""
+	if petting {
+		heartStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4eba65"))
+		styledFace = heartStyle.Render("♥") + " " + faceStyle.Render(face)
+	} else {
+		styledFace = faceStyle.Render(face)
+	}
 
 	// Build label: quip if speaking, otherwise name
+	// TS: label = quip ? `"${quip}"` : focused ? ` ${name} ` : name
 	quip := ""
+	hasReaction := false
 	if m.IsSpeaking() {
+		hasReaction = true
 		quip = m.reaction
 		if utf8.RuneCountInString(quip) > narrowQuipCap {
 			runes := []rune(quip)
@@ -377,21 +442,42 @@ func (m Model) renderNarrow() string {
 		}
 	}
 
+	// Fading state (needed for label color)
+	fading := false
+	if hasReaction {
+		ticksSinceSpoke := m.tick - m.lastSpokeTick
+		fading = ticksSinceSpoke >= (BubbleShow - FadeWindow)
+	}
+
 	var label string
 	if quip != "" {
 		label = "\"" + quip + "\""
+	} else if m.focused {
+		label = " " + name + " "
 	} else {
 		label = name
 	}
 
-	// Style the label
+	// Style the label — matches TS CompanionSprite.tsx line 236:
+	//   dimColor={!focused && !reaction}
+	//   bold={focused}
+	//   inverse={focused && !reaction}
+	//   color={reaction ? (fading ? 'inactive' : color) : (focused ? color : undefined)}
 	var styledLabel string
 	if label != "" {
 		labelStyle := lipgloss.NewStyle().Italic(true)
 		if m.focused {
-			labelStyle = labelStyle.Bold(true).Reverse(true)
-		} else if quip != "" {
+			labelStyle = labelStyle.Bold(true)
+			if !hasReaction {
+				labelStyle = labelStyle.Reverse(true)
+			}
 			labelStyle = labelStyle.Foreground(lipgloss.Color(rarityColor))
+		} else if hasReaction {
+			if fading {
+				labelStyle = labelStyle.Foreground(lipgloss.Color("#999999")) // inactive
+			} else {
+				labelStyle = labelStyle.Foreground(lipgloss.Color(rarityColor))
+			}
 		} else {
 			labelStyle = labelStyle.Faint(true)
 		}
@@ -414,11 +500,56 @@ func (m Model) renderNarrow() string {
 	return styledFace + styledLabel + suffix
 }
 
+// spriteBodyWidth is the standard width of the ASCII sprite art.
+const spriteBodyWidth = 12
+
+// SpriteColWidth returns the total visual width of the companion block
+// (sprite body + gap + info column) for layout calculations.
+func (m Model) SpriteColWidth() int {
+	return m.spriteColWidth()
+}
+
+func (m Model) spriteColWidth() int {
+	const infoGap = 2
+	bodyW := spriteBodyWidth
+	infoW := m.infoColWidth()
+	if infoW == 0 {
+		return bodyW
+	}
+	return bodyW + infoGap + infoW
+}
+
+// infoColWidth returns the max visual width of the info lines (name, stars+species, stat, etc.)
+func (m Model) infoColWidth() int {
+	if m.companion == nil {
+		return 0
+	}
+	w := m.NameWidth()
+	// Stars + species: "★★★ capybara"
+	stars := buddy.RarityStars[m.companion.Rarity]
+	species := string(m.companion.Species)
+	if iw := utf8.RuneCountInString(stars) + 1 + utf8.RuneCountInString(species); iw > w {
+		w = iw
+	}
+	// Personality line (truncated to 14 + 2 quotes)
+	if m.companion.Personality != "" {
+		persLen := utf8.RuneCountInString(m.companion.Personality)
+		if persLen > 14 {
+			persLen = 14
+		}
+		if pl := persLen + 2; pl > w { // +2 for quotes
+			w = pl
+		}
+	}
+	return w
+}
+
 // centerText pads a string to center it within width.
 func centerText(s string, width int) string {
-	if len(s) >= width {
+	w := utf8.RuneCountInString(s)
+	if w >= width {
 		return s
 	}
-	pad := (width - len(s)) / 2
+	pad := (width - w) / 2
 	return strings.Repeat(" ", pad) + s
 }

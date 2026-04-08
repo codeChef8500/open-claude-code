@@ -42,8 +42,10 @@ type Observer struct {
 	rng       *rand.Rand
 
 	// Cooldown: don't react too frequently
-	lastReaction time.Time
-	cooldownMS   int
+	lastReaction  time.Time
+	cooldownMS    int
+	turnReactions int // reactions fired this turn
+	maxPerTurn    int // max reactions per turn (TS fires ~1 per turn)
 }
 
 // NewObserver creates an observer for the given companion.
@@ -52,7 +54,8 @@ func NewObserver(comp *Companion, cb ReactionCallback) *Observer {
 		companion:  comp,
 		callback:   cb,
 		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
-		cooldownMS: 8000, // 8s between reactions
+		cooldownMS: 6000, // 6s between reactions
+		maxPerTurn: 2,    // max 2 reactions per turn (TS fires ~1 at turn end)
 	}
 }
 
@@ -72,8 +75,18 @@ func (o *Observer) OnEvent(ev EngineEvent) {
 		return
 	}
 
+	// Reset per-turn counter on turn boundaries
+	if ev.Kind == EventTurnStart {
+		o.turnReactions = 0
+	}
+
 	// Cooldown check
 	if time.Since(o.lastReaction).Milliseconds() < int64(o.cooldownMS) {
+		return
+	}
+
+	// Per-turn limit
+	if o.turnReactions >= o.maxPerTurn {
 		return
 	}
 
@@ -83,6 +96,7 @@ func (o *Observer) OnEvent(ev EngineEvent) {
 	}
 
 	o.lastReaction = time.Now()
+	o.turnReactions++
 	o.callback(reaction)
 }
 

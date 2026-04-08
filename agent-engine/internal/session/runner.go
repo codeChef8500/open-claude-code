@@ -242,7 +242,7 @@ func (r *Runner) handleBuddySignal(action string) {
 			stars,
 			comp.Personality,
 			comp.Shiny,
-			fmt.Sprintf("%d", comp.HatchedAt),
+			time.UnixMilli(comp.HatchedAt).Format("Jan 2, 2006"),
 			spriteLines,
 		)
 		r.OnSystem(card)
@@ -455,7 +455,7 @@ func (r *Runner) handleMessage(ctx context.Context, text string) {
 				r.result.SessionTracker.RecordToolCall("", true)
 			}
 			if r.observer != nil {
-				r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventToolEnd, ToolName: ev.ToolID})
+				r.observer.OnEvent(buddy.EngineEvent{Kind: buddy.EventToolEnd, ToolName: ev.ToolName})
 			}
 
 		case engine.EventUsage:

@@ -14,8 +14,8 @@ import (
 //   TailDown  — float mode:  two descending "╲" lines below the bottom border
 
 const (
-	bubbleMaxWidth = 32 // max chars per line inside bubble (TS: width 34 - 2 border)
-	BubbleWidth    = 36 // total bubble width including borders and padding (TS BUBBLE_WIDTH)
+	bubbleMaxWidth = 30 // max chars per line inside bubble (TS: wrap(text, 30))
+	BubbleWidth    = 36 // total bubble width including borders and padding (TS BUBBLE_WIDTH = 36)
 )
 
 // TailMode selects the speech bubble tail style.
@@ -108,26 +108,17 @@ func BubbleBoxWidth(text string) int {
 }
 
 // CompanionReservedColumns returns how many columns the companion reserves
-// from the input area. Matches claude-code-main companionReservedColumns().
+// from the input area.
 //
-// nameWidth: rune count of companion name
+// spriteColWidth: actual column width of the sprite area (from Model.SpriteColWidth)
+// speaking: whether the companion is currently speaking
 // fullscreen: true if the app is in fullscreen mode (no inline bubble)
-func CompanionReservedColumns(termCols int, speaking bool, nameWidth int, fullscreen bool) int {
+func CompanionReservedColumns(termCols int, speaking bool, spriteColWidth int, fullscreen bool) int {
 	if termCols < MinColsFull {
 		return 0 // narrow mode uses inline face, no column reservation
 	}
-	// spriteColWidth = max(12, nameWidth + 2, statsLineWidth)
-	// Stats line: "DBG ██████ 99" ≈ 16 chars
-	const statsLineWidth = 16
-	spriteW := 12
-	if nameWidth+2 > spriteW {
-		spriteW = nameWidth + 2
-	}
-	if statsLineWidth > spriteW {
-		spriteW = statsLineWidth
-	}
-	const spritePaddingX = 2
-	base := spriteW + spritePaddingX
+	const sprPaddingX = 2
+	base := spriteColWidth + sprPaddingX
 	if speaking && !fullscreen {
 		base += BubbleWidth
 	}

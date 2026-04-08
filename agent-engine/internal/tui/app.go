@@ -440,6 +440,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.layout.Resize(msg.Width, msg.Height)
 		a.searchBar.SetWidth(msg.Width)
 		a.transcript.SetSize(msg.Width, msg.Height-4)
+		a.companionView.SetWidth(msg.Width)
 		a.reflow()
 
 	// ── Streaming engine events ────────────────────────────────────────────
@@ -898,7 +899,7 @@ func (a *App) renderInput() string {
 	// Calculate input width, reserving space for companion sprite if visible.
 	inputW := w
 	speaking := companionVisible && a.companionView.IsSpeaking()
-	reserved := companion.CompanionReservedColumns(w, speaking, a.companionView.NameWidth(), a.companionView.IsFullscreen())
+	reserved := companion.CompanionReservedColumns(w, speaking, a.companionView.SpriteColWidth(), a.companionView.IsFullscreen())
 	if companionVisible && reserved > 0 {
 		inputW = w - reserved
 		if inputW < 40 {
@@ -932,11 +933,20 @@ func (a *App) renderInput() string {
 		bordered = lipgloss.JoinVertical(lipgloss.Left, popup, bordered)
 	}
 
-	// Join companion sprite to the right of the input if visible and space allows.
+	// Join companion to the input area.
+	// Wide mode (reserved > 0): sprite to the right of input (row layout).
+	// Narrow mode (reserved == 0): inline face below input (column layout).
+	// Matches TS REPL.tsx: flexDirection={companionNarrow ? 'column' : 'row'}
 	if companionVisible && reserved > 0 {
 		spriteView := a.companionView.View()
 		if spriteView != "" {
 			bordered = lipgloss.JoinHorizontal(lipgloss.Bottom, bordered, "  ", spriteView)
+		}
+	} else if companionVisible && w < companion.MinColsFull {
+		// Narrow terminal: render companion face on its own row below input
+		narrowView := a.companionView.View()
+		if narrowView != "" {
+			bordered = bordered + "\n" + narrowView
 		}
 	}
 
@@ -1788,10 +1798,13 @@ func (a *App) handleVimAction(action vim.Action) {
 		a.textarea.Focus()
 	case vim.ActionMoveUp:
 		a.viewport.LineUp(action.Count)
+		a.companionView.SetReaction("") // scroll dismiss
 	case vim.ActionMoveDown:
 		a.viewport.LineDown(action.Count)
+		a.companionView.SetReaction("") // scroll dismiss
 	case vim.ActionMoveDocTop:
 		a.viewport.GotoTop()
+		a.companionView.SetReaction("") // scroll dismiss
 	case vim.ActionMoveDocBottom:
 		a.viewport.GotoBottom()
 	case vim.ActionSearch:
