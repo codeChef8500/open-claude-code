@@ -36,6 +36,10 @@ type Engine struct {
 	autoModeClassifier AutoModeClassifier
 	hookExecutor       *hooks.Executor
 
+	// Interactive callbacks — wired by the TUI/SDK layer.
+	askPermission func(ctx context.Context, tool, desc string) (bool, error)
+	requestPrompt func(sourceName string, toolInputSummary string) func(request interface{}) (interface{}, error)
+
 	// Command system — intercepts slash commands before model invocation.
 	commandRegistry *command.Registry
 }
@@ -111,6 +115,18 @@ func (e *Engine) SetHookExecutor(he *hooks.Executor) { e.hookExecutor = he }
 
 // SetCommandRegistry installs the slash command registry for interception.
 func (e *Engine) SetCommandRegistry(r *command.Registry) { e.commandRegistry = r }
+
+// SetAskPermission installs the interactive permission callback.
+// This is called by tools that require user approval (e.g. file writes).
+func (e *Engine) SetAskPermission(fn func(ctx context.Context, tool, desc string) (bool, error)) {
+	e.askPermission = fn
+}
+
+// SetRequestPrompt installs the interactive prompt elicitation callback.
+// This is called by tools like AskUserQuestion that present structured UI dialogs.
+func (e *Engine) SetRequestPrompt(fn func(sourceName string, toolInputSummary string) func(request interface{}) (interface{}, error)) {
+	e.requestPrompt = fn
+}
 
 // CommandRegistry returns the command registry (may be nil).
 func (e *Engine) CommandRegistry() *command.Registry { return e.commandRegistry }
@@ -267,9 +283,19 @@ func (e *Engine) Close() error { return nil }
 // useContext builds a UseContext for the current session.
 func (e *Engine) useContext() *UseContext {
 	return &UseContext{
-		WorkDir:   e.cfg.WorkDir,
-		SessionID: e.cfg.SessionID,
-		AutoMode:  e.cfg.AutoMode,
+		WorkDir:        e.cfg.WorkDir,
+		SessionID:      e.cfg.SessionID,
+		AutoMode:       e.cfg.AutoMode,
+		PermissionMode: e.cfg.PermissionMode,
+		AskPermission:  e.askPermission,
+		RequestPrompt:  e.requestPrompt,
+		GetAppState: func() interface{} {
+			v := e.store.Get("app_state")
+			if v != nil {
+				return v
+			}
+			return nil
+		},
 	}
 }
 

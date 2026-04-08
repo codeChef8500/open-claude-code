@@ -65,12 +65,13 @@ type PreviewViewModel struct {
 	NotesCursor   int
 
 	// Configuration
-	ShowPlanMode   bool
-	EditorName     string
-	MultiQuestion  bool
+	ShowPlanMode    bool
+	EditorName      string
+	MultiQuestion   bool
 	MinContentWidth int
 	MaxPreviewWidth int
 	PreviewMaxLines int
+	Width           int // available render width (0 = use default 37)
 }
 
 // AllOptions returns question options + "Other".
@@ -112,8 +113,19 @@ func RenderPreviewQuestionView(vm *PreviewViewModel, pvStyles PreviewViewStyles,
 	leftLines := strings.Split(leftPanel, "\n")
 	rightLines := strings.Split(rightPanel, "\n")
 
-	// Determine left panel width (fixed at 30)
-	leftWidth := 30
+	// Determine left panel width based on longest option label.
+	// Minimum 20 chars, capped to avoid squeezing the preview panel.
+	leftWidth := 20
+	for _, opt := range vm.AllOptions() {
+		// Account for pointer(2) + number(4) + space(1) + label
+		w := 7 + len(opt.Label)
+		if w > leftWidth {
+			leftWidth = w
+		}
+	}
+	if leftWidth > 40 {
+		leftWidth = 40
+	}
 	gap := 4
 
 	maxLines := len(leftLines)
@@ -238,7 +250,11 @@ func renderRightPanel(vm *PreviewViewModel, pvStyles PreviewViewStyles, pbStyles
 func renderPreviewFooter(vm *PreviewViewModel, styles PreviewViewStyles) string {
 	var sb strings.Builder
 
-	sb.WriteString(styles.Divider.Render("─────────────────────────────────────"))
+	divWidth := vm.Width - 4
+	if divWidth < 20 {
+		divWidth = 37
+	}
+	sb.WriteString(styles.Divider.Render(strings.Repeat("─", divWidth)))
 	sb.WriteString("\n")
 
 	// "Chat about this"

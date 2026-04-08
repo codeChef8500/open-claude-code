@@ -358,17 +358,35 @@ func (t *AskUserQuestionTool) Call(ctx context.Context, input json.RawMessage, u
 		}
 
 		// Fallback: if AskPermission callback, use it.
+		// This degrades multi-choice questions to a yes/no approval, but we
+		// include the question context so the LLM understands what happened.
 		if uctx.AskPermission != nil {
 			approved, err := uctx.AskPermission(ctx, t.Name(), summary)
 			if err != nil {
 				ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: err.Error(), IsError: true}
 				return
 			}
-			answer := "no"
-			if approved {
-				answer = "yes"
+			// Build a structured fallback response with context.
+			fallbackResp := map[string]interface{}{
+				"questions": in.Questions,
+				"fallback":  true,
 			}
-			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: answer}
+			if approved {
+				// Auto-select first option for each question.
+				answers := make(map[string]string)
+				for _, q := range in.Questions {
+					if len(q.Options) > 0 {
+						answers[q.QuestionText] = q.Options[0].Label
+					}
+				}
+				fallbackResp["answers"] = answers
+				fallbackResp["approved"] = true
+			} else {
+				fallbackResp["cancelled"] = true
+				fallbackResp["approved"] = false
+			}
+			data, _ := json.Marshal(fallbackResp)
+			ch <- &engine.ContentBlock{Type: engine.ContentTypeText, Text: string(data)}
 			return
 		}
 

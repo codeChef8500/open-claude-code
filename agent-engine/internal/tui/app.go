@@ -229,7 +229,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !a.askDialog.IsVisible() {
 			a.askDialog = nil
 		}
-		return a, tea.Batch(cmds...)
+		// Let WindowSizeMsg pass through so the app layout updates too.
+		if _, isResize := msg.(tea.WindowSizeMsg); !isResize {
+			return a, tea.Batch(cmds...)
+		}
 	}
 
 	// ── Permission modal intercepts all keys while visible ────────────────
@@ -618,6 +621,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case CompanionMuteMsg:
 		a.companionView.SetMuted(msg.Muted)
+
+	// ── AskUserQuestion events ───────────────────────────────────────────
+	case AskQuestionRequestMsg:
+		// Convert []interface{} → []askquestion.Question
+		questions := make([]askquestion.Question, 0, len(msg.Questions))
+		for _, q := range msg.Questions {
+			if aq, ok := q.(askquestion.Question); ok {
+				questions = append(questions, aq)
+			}
+		}
+		// Create typed result channel that bridges back to the engine
+		typedCh := make(chan askquestion.AskQuestionResponse, 1)
+		go func() {
+			resp := <-typedCh
+			msg.ResultCh <- resp
+		}()
+		a.ShowAskQuestionDialog(AskQuestionDialogOpts{
+			Questions:    questions,
+			ResultCh:     typedCh,
+			PlanFilePath: msg.PlanFilePath,
+			EditorName:   msg.EditorName,
+		})
 	}
 
 	a.textarea, taCmd = a.textarea.Update(msg)
@@ -742,19 +767,34 @@ func (a *App) View() string {
 		body += "\n" + a.spinner.View()
 	}
 
-	input := a.renderInput()
+	var input string
+	if a.askDialog != nil && a.askDialog.IsVisible() {
+		// When the AskUserQuestion dialog is active, render it in place of
+		// the normal input area so the user sees options, not the textarea.
+		input = a.askDialog.View()
+	} else {
+		input = a.renderInput()
 
-	// P10: Render floating bubble above input in fullscreen mode
-	floatingBubble := a.companionView.FloatingBubbleView()
-	if floatingBubble != "" {
-		input = floatingBubble + "\n" + input
+		// P10: Render floating bubble above input in fullscreen mode
+		floatingBubble := a.companionView.FloatingBubbleView()
+		if floatingBubble != "" {
+			input = floatingBubble + "\n" + input
+		}
 	}
 
 	footer := a.renderFooter()
 
-	// Dynamically expand input region when autocomplete popup is visible,
-	// so Compose/padToHeight doesn't clip the popup lines.
-	if a.compState.Active && len(a.compState.Items) > 0 {
+	// Dynamically expand input region so Compose/padToHeight doesn't clip.
+	if a.askDialog != nil && a.askDialog.IsVisible() {
+		// AskUserQuestion dialog needs much more vertical space than the
+		// default 5-line input area. Count actual lines and expand.
+		dialogLines := strings.Count(input, "\n") + 1
+		if dialogLines < 12 {
+			dialogLines = 12 // minimum to fit a single question with options
+		}
+		a.layout.SetInputHeight(dialogLines)
+		a.viewport.Height = a.layout.BodyHeight()
+	} else if a.compState.Active && len(a.compState.Items) > 0 {
 		popupLines := len(a.compState.Items)
 		if popupLines > 8 {
 			popupLines = 8
@@ -770,11 +810,6 @@ func (a *App) View() string {
 	}
 
 	view := a.layout.Compose(header, body, input, footer)
-
-	// Overlay AskUserQuestion dialog if visible
-	if a.askDialog != nil && a.askDialog.IsVisible() {
-		view += "\n" + a.askDialog.View()
-	}
 
 	// Overlay permission dialog if visible
 	if a.permission.IsVisible() {

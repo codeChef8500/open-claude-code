@@ -83,8 +83,14 @@ func (l *Layout) SetInputHeight(h int) {
 	if h < 1 {
 		h = 1
 	}
-	if h > l.height/2 {
-		h = l.height / 2
+	// Allow up to height-6 so the body keeps at least 3 lines
+	// (header=1 + footer=1 + gap=1 + minBody=3 = 6 reserved).
+	maxH := l.height - 6
+	if maxH < defaultInputH {
+		maxH = defaultInputH
+	}
+	if h > maxH {
+		h = maxH
 	}
 	l.inputHeight = h
 	l.Resize(l.width, l.height)

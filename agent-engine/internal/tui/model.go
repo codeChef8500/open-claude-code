@@ -137,6 +137,17 @@ type CompanionMuteMsg struct {
 // TeaserExpiredMsg signals the teaser notification should be hidden.
 type TeaserExpiredMsg struct{}
 
+// ── AskUserQuestion Bubbletea messages ──────────────────────────────────────
+
+// AskQuestionRequestMsg asks the TUI to show the AskUserQuestion dialog.
+// The engine blocks on ResponseCh waiting for the user to complete the dialog.
+type AskQuestionRequestMsg struct {
+	Questions    []interface{} // []askuser.Question — interface to avoid import cycle
+	ResultCh     chan<- interface{}
+	PlanFilePath string
+	EditorName   string
+}
+
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 // Model is the top-level Bubbletea model for the agent TUI.

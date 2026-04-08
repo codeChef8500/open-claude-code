@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -19,7 +20,7 @@ import (
 
 // ImagePasteStore manages pasted images per question.
 type ImagePasteStore struct {
-	// perQuestion maps question text → list of pasted images
+	mu          sync.Mutex
 	perQuestion map[string][]PastedContent
 }
 
@@ -32,16 +33,24 @@ func NewImagePasteStore() *ImagePasteStore {
 
 // Add adds a pasted image for a question.
 func (s *ImagePasteStore) Add(questionText string, content PastedContent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.perQuestion[questionText] = append(s.perQuestion[questionText], content)
 }
 
 // Get returns the pasted images for a question.
 func (s *ImagePasteStore) Get(questionText string) []PastedContent {
-	return s.perQuestion[questionText]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make([]PastedContent, len(s.perQuestion[questionText]))
+	copy(cp, s.perQuestion[questionText])
+	return cp
 }
 
 // All returns all pasted images across all questions.
 func (s *ImagePasteStore) All() []PastedContent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var all []PastedContent
 	for _, items := range s.perQuestion {
 		all = append(all, items...)
@@ -51,6 +60,8 @@ func (s *ImagePasteStore) All() []PastedContent {
 
 // Remove removes a pasted image by ID from a question.
 func (s *ImagePasteStore) Remove(questionText, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	items := s.perQuestion[questionText]
 	filtered := make([]PastedContent, 0, len(items))
 	for _, item := range items {
@@ -63,6 +74,8 @@ func (s *ImagePasteStore) Remove(questionText, id string) {
 
 // HasImages returns true if any question has pasted images.
 func (s *ImagePasteStore) HasImages() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, items := range s.perQuestion {
 		if len(items) > 0 {
 			return true
@@ -83,8 +96,9 @@ func DetectBase64Image(data string) *PastedContent {
 		return parseDataURI(data)
 	}
 
-	// Check if it looks like raw base64 (at least 100 chars, valid base64)
-	if len(data) >= 100 {
+	// Check if it looks like raw base64 (at least 500 chars to avoid false
+	// positives on normal text that happens to be valid base64).
+	if len(data) >= 500 {
 		// Try to decode a small sample to verify it's valid base64
 		sample := data
 		if len(sample) > 200 {

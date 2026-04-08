@@ -2,7 +2,9 @@ package askquestion
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -141,7 +143,7 @@ func (d *AskQuestionDialog) View() string {
 
 	// Top divider
 	divStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	sb.WriteString(divStyle.Render(strings.Repeat("─", minInt(d.width, 80))))
+	sb.WriteString(divStyle.Render(strings.Repeat("─", min(d.width, 80))))
 	sb.WriteString("\n")
 
 	// Navigation bar
@@ -305,8 +307,12 @@ func (d *AskQuestionDialog) handleEnter() (*AskQuestionDialog, tea.Cmd) {
 		if q.MultiSelect {
 			allOptsLen := len(q.Options) + 1
 			if d.focusedIndex == allOptsLen {
-				// "Next"/"Submit" button
+				// "Next"/"Submit" button — require at least one selection
 				qs := d.state.GetQuestionState(q.QuestionText)
+				if len(qs.SelectedValues) == 0 {
+					// No selections yet — ignore the press
+					return d, nil
+				}
 				d.state.SetMultiSelectAnswer(q.QuestionText, qs.SelectedValues)
 				if d.state.ShouldAutoSubmit() {
 					return d, d.submit()
@@ -328,18 +334,24 @@ func (d *AskQuestionDialog) handleEnter() (*AskQuestionDialog, tea.Cmd) {
 
 	case FocusFooter:
 		if d.footerIndex == 0 {
-			// "Chat about this"
+			// "Chat about this" — user wants to discuss rather than answer
+			feedback := d.buildFeedbackSummary("The user chose to \"Respond to Claude\" instead of answering the questions.")
 			return d, d.finish(AskQuestionResponse{
 				RespondToClaude: true,
+				Feedback:        feedback,
 				Answers:         d.state.Answers,
 				Annotations:     d.state.Annotations,
+				PastedContents:  d.imageStore.All(),
 			})
 		} else if d.footerIndex == 1 && d.showPlanMode {
 			// "Skip interview and plan immediately"
+			feedback := d.buildFeedbackSummary("The user chose to \"Finish Plan Interview\" and skip the remaining questions. Proceed with the plan using the answers provided so far.")
 			return d, d.finish(AskQuestionResponse{
 				FinishInterview: true,
+				Feedback:        feedback,
 				Answers:         d.state.Answers,
 				Annotations:     d.state.Annotations,
+				PastedContents:  d.imageStore.All(),
 			})
 		}
 	}
@@ -416,7 +428,8 @@ func (d *AskQuestionDialog) handleTextInputKey(msg tea.KeyMsg) (*AskQuestionDial
 
 	case "backspace":
 		if len(d.textInput) > 0 {
-			d.textInput = d.textInput[:len(d.textInput)-1]
+			_, size := utf8.DecodeLastRuneInString(d.textInput)
+			d.textInput = d.textInput[:len(d.textInput)-size]
 		}
 		return d, nil
 
@@ -466,6 +479,31 @@ func (d *AskQuestionDialog) handleSubmitKey(msg tea.KeyMsg) (*AskQuestionDialog,
 	}
 
 	return d, nil
+}
+
+// buildFeedbackSummary constructs a descriptive feedback string that includes
+// the action context plus any partial answers the user provided.
+func (d *AskQuestionDialog) buildFeedbackSummary(action string) string {
+	var sb strings.Builder
+	sb.WriteString(action)
+
+	// Include any partial answers so the LLM knows what was answered.
+	answeredCount := 0
+	for _, q := range d.state.Questions {
+		if ans, ok := d.state.Answers[q.QuestionText]; ok && ans != "" {
+			answeredCount++
+		}
+	}
+	if answeredCount > 0 {
+		sb.WriteString(fmt.Sprintf("\n\nPartial answers provided (%d of %d questions):", answeredCount, len(d.state.Questions)))
+		for _, q := range d.state.Questions {
+			if ans, ok := d.state.Answers[q.QuestionText]; ok && ans != "" {
+				sb.WriteString(fmt.Sprintf("\n- %s: %s", q.QuestionText, ans))
+			}
+		}
+	}
+
+	return sb.String()
 }
 
 // ── Submit / finish helpers ─────────────────────────────────────────────────
@@ -546,6 +584,7 @@ func (d *AskQuestionDialog) renderNormalPage(q *Question) string {
 		PlanFilePath:   d.planFilePath,
 		EditorName:     d.editorName,
 		MultiQuestion:  len(d.state.Questions) > 1,
+		Width:          d.width,
 	}
 
 	return RenderQuestionView(vm, d.qvStyles)
@@ -565,8 +604,9 @@ func (d *AskQuestionDialog) renderPreviewPage(q *Question) string {
 		EditorName:      d.editorName,
 		MultiQuestion:   len(d.state.Questions) > 1,
 		MinContentWidth: 20,
-		MaxPreviewWidth: maxInt(d.width-40, 30),
-		PreviewMaxLines: maxInt(d.height-12, 10),
+		MaxPreviewWidth: max(d.width-40, 30),
+		PreviewMaxLines: max(d.height-12, 10),
+		Width:           d.width,
 	}
 
 	return RenderPreviewQuestionView(vm, d.pvStyles, d.pbStyles)
@@ -593,22 +633,21 @@ func ResponseJSON(questions []Question, resp AskQuestionResponse) string {
 		"answers":     resp.Answers,
 		"annotations": resp.Annotations,
 	}
+	if len(resp.PastedContents) > 0 {
+		out["pastedContents"] = resp.PastedContents
+	}
+	if resp.Cancelled {
+		out["cancelled"] = true
+	}
+	if resp.RespondToClaude {
+		out["respondToClaude"] = true
+	}
+	if resp.Feedback != "" {
+		out["feedback"] = resp.Feedback
+	}
+	if resp.FinishInterview {
+		out["finishInterview"] = true
+	}
 	data, _ := json.Marshal(out)
 	return string(data)
-}
-
-// ── Utility ─────────────────────────────────────────────────────────────────
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

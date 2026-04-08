@@ -10,6 +10,7 @@ import (
 	"github.com/wall-ai/agent-engine/internal/buddy"
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/session"
+	"github.com/wall-ai/agent-engine/internal/tool/askuser"
 	"github.com/wall-ai/agent-engine/internal/tui"
 	"github.com/wall-ai/agent-engine/internal/util"
 )
@@ -27,8 +28,64 @@ func runInteractiveMode(ctx context.Context, appCfg *util.AppConfig, wd string) 
 
 	runner := session.NewRunner(result)
 
+	// Wire interactive callbacks on the engine so tools like AskUserQuestion
+	// can present TUI dialogs and block waiting for user responses.
 	// We need a reference to the program for sending messages from goroutines.
 	var program *tea.Program
+
+	// RequestPrompt: tools call this to show structured UI dialogs (e.g. AskUserQuestion).
+	result.Engine.SetRequestPrompt(func(sourceName string, toolInputSummary string) func(request interface{}) (interface{}, error) {
+		return func(request interface{}) (interface{}, error) {
+			reqMap, ok := request.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("AskUserQuestion: expected map request, got %T", request)
+			}
+
+			// Extract questions from the request.
+			// The tool passes []askuser.Question directly, but Go does not
+			// allow []T → []interface{} assertion, so we handle both types.
+			questionsRaw, _ := reqMap["questions"]
+			var questions []interface{}
+			switch qs := questionsRaw.(type) {
+			case []askuser.Question:
+				for _, q := range qs {
+					questions = append(questions, q)
+				}
+			case []interface{}:
+				for _, q := range qs {
+					data, _ := json.Marshal(q)
+					var aq askuser.Question
+					if err := json.Unmarshal(data, &aq); err == nil {
+						questions = append(questions, aq)
+					}
+				}
+			default:
+				// Fallback: JSON round-trip for any other slice type.
+				data, _ := json.Marshal(questionsRaw)
+				var typed []askuser.Question
+				if json.Unmarshal(data, &typed) == nil {
+					for _, q := range typed {
+						questions = append(questions, q)
+					}
+				}
+			}
+
+			// Create result channel and send request to TUI.
+			resultCh := make(chan interface{}, 1)
+			if program != nil {
+				program.Send(tui.AskQuestionRequestMsg{
+					Questions: questions,
+					ResultCh:  resultCh,
+				})
+			} else {
+				return "no interactive program available", nil
+			}
+
+			// Block waiting for user response.
+			resp := <-resultCh
+			return resp, nil
+		}
+	})
 
 	app, err := tui.NewApp(tui.AppConfig{
 		Dark:           appCfg.DarkMode,

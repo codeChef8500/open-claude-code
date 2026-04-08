@@ -74,6 +74,7 @@ type QuestionViewModel struct {
 	PlanFilePath  string // plan file path for display
 	EditorName    string // external editor name (for ctrl+g hint)
 	MultiQuestion bool   // whether there are multiple questions (for tab hint)
+	Width         int    // available render width (0 = use default 37)
 }
 
 // AllOptions returns the question options plus the auto-appended "Other" option.
@@ -209,7 +210,11 @@ func renderFooter(vm *QuestionViewModel, styles QuestionViewStyles) string {
 	var sb strings.Builder
 
 	// Divider
-	sb.WriteString(styles.Divider.Render("─────────────────────────────────────"))
+	divWidth := vm.Width - 4
+	if divWidth < 20 {
+		divWidth = 37 // default fallback
+	}
+	sb.WriteString(styles.Divider.Render(strings.Repeat("─", divWidth)))
 	sb.WriteString("\n")
 
 	// "Chat about this"

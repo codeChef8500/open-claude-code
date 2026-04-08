@@ -141,10 +141,3 @@ func RenderNavBarCompact(
 	}
 	return fmt.Sprintf("Question %d of %d", currentIndex+1, totalQuestions)
 }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

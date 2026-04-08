@@ -73,8 +73,8 @@ func TestDetectBase64Image_DataURI(t *testing.T) {
 }
 
 func TestDetectBase64Image_RawBase64(t *testing.T) {
-	// Create a large enough valid base64 string
-	raw := base64.StdEncoding.EncodeToString(make([]byte, 200))
+	// Create a large enough valid base64 string (>500 chars after encoding)
+	raw := base64.StdEncoding.EncodeToString(make([]byte, 400))
 	img := DetectBase64Image(raw)
 	if img == nil {
 		t.Fatal("should detect raw base64 image")
