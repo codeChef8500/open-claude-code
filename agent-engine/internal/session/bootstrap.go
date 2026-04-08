@@ -13,8 +13,10 @@ import (
 	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/memory"
 	"github.com/wall-ai/agent-engine/internal/permission"
+	"github.com/wall-ai/agent-engine/internal/plugin"
 	"github.com/wall-ai/agent-engine/internal/prompt"
 	"github.com/wall-ai/agent-engine/internal/provider"
+	"github.com/wall-ai/agent-engine/internal/skill"
 	"github.com/wall-ai/agent-engine/internal/toolset"
 	"github.com/wall-ai/agent-engine/internal/util"
 )
@@ -121,7 +123,24 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) (*BootstrapResult, erro
 	})
 	result.SystemPrompt = sysPrompt
 
-	// ── 5. Engine ──────────────────────────────────────────────────────────
+	// ── 5. Skill & Plugin Discovery ──────────────────────────────────────
+	skillReg := skill.NewRegistry()
+	for _, s := range skill.DiscoverAll(workDir) {
+		skillReg.Add(s)
+	}
+
+	// Initialize plugin system and merge plugin-provided skills.
+	plugin.InitBuiltinPlugins()
+	binDirs, mfDirs := plugin.DefaultPluginDirs()
+	plugMgr := plugin.NewManager(binDirs, mfDirs)
+	plugMgr.DiscoverAndLoad()
+	for _, s := range plugMgr.GetAllSkills() {
+		skillReg.Add(s)
+	}
+
+	slog.Info("skills discovered", slog.Int("count", len(skillReg.AllSkills())))
+
+	// ── 6. Engine ──────────────────────────────────────────────────────────
 	eng, err := engine.New(engine.EngineConfig{
 		Provider:           appCfg.Provider,
 		APIKey:             appCfg.APIKey,
@@ -136,7 +155,7 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) (*BootstrapResult, erro
 		PermissionMode:     appCfg.PermissionMode,
 		CustomSystemPrompt: sysPrompt.Text,
 		Verbose:            appCfg.VerboseMode,
-	}, prov, toolset.DefaultTools(nil))
+	}, prov, toolset.DefaultTools(nil, skillReg))
 	if err != nil {
 		return nil, fmt.Errorf("create engine: %w", err)
 	}
@@ -148,18 +167,18 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) (*BootstrapResult, erro
 	eng.SetPromptBuilder(prompt.NewAdapter())
 	eng.SetPermissionChecker(permission.NewAdapterWithChecker(checker))
 
-	// ── 6. Command executor ────────────────────────────────────────────────
+	// ── 7. Command executor ────────────────────────────────────────────────
 	cmdExec := command.NewExecutor(command.Default())
 	result.CmdExecutor = cmdExec
 
-	// ── 7. Cost + session tracking ─────────────────────────────────────────
+	// ── 8. Cost + session tracking ─────────────────────────────────────────
 	costTracker := provider.NewCostTracker()
 	result.CostTracker = costTracker
 
 	sessionTracker := analytics.NewSessionTracker(sessionID, appCfg.Model, workDir)
 	result.SessionTracker = sessionTracker
 
-	// ── 8. Analytics ───────────────────────────────────────────────────────
+	// ── 9. Analytics ───────────────────────────────────────────────────────
 	analytics.SetSessionID(sessionID)
 	analyticsPath := analytics.DefaultAnalyticsPath()
 	if analyticsPath != "" {

@@ -29,6 +29,8 @@ type MemoryViewData struct {
 	Editor string `json:"editor,omitempty"`
 	// Error if memory file discovery failed.
 	Error string `json:"error,omitempty"`
+	// FallbackText is plain-text output for non-interactive contexts.
+	FallbackText string `json:"fallback_text,omitempty"`
 }
 
 // MemoryFileEntry represents a single memory file.
@@ -92,10 +94,35 @@ func (c *DeepMemoryCommand) ExecuteInteractive(_ context.Context, args []string,
 		data.Files = append(data.Files, makeMemoryEntry(userFile, "user"))
 	}
 
+	data.FallbackText = buildMemoryText(data)
 	return &InteractiveResult{
 		Component: "memory",
 		Data:      data,
 	}, nil
+}
+
+// buildMemoryText formats MemoryViewData as plain text.
+func buildMemoryText(d *MemoryViewData) string {
+	if len(d.Files) == 0 {
+		return "No memory files found."
+	}
+	var sb strings.Builder
+	sb.WriteString("Memory files:\n")
+	for _, f := range d.Files {
+		status := "(missing)"
+		if f.Exists {
+			if f.Writable {
+				status = "(exists, writable)"
+			} else {
+				status = "(exists, read-only)"
+			}
+		}
+		sb.WriteString(fmt.Sprintf("  [%s] %s %s\n", f.Label, f.Path, status))
+	}
+	if d.Editor != "" {
+		sb.WriteString("Editor: " + d.Editor + "\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 func makeMemoryEntry(path, label string) MemoryFileEntry {
@@ -125,6 +152,8 @@ type PermissionsViewData struct {
 	PermissionMode string `json:"permission_mode"`
 	// Error if rule retrieval failed.
 	Error string `json:"error,omitempty"`
+	// FallbackText is plain-text output for non-interactive (text-mode) contexts.
+	FallbackText string `json:"fallback_text,omitempty"`
 }
 
 // PermissionRule describes a single permission rule.
@@ -181,10 +210,55 @@ func (c *DeepPermissionsCommand) ExecuteInteractive(_ context.Context, _ []strin
 		}
 	}
 
+	data.FallbackText = buildPermissionsText(data)
 	return &InteractiveResult{
 		Component: "permissions",
 		Data:      data,
 	}, nil
+}
+
+// buildPermissionsText formats PermissionsViewData as plain text for non-interactive contexts.
+func buildPermissionsText(d *PermissionsViewData) string {
+	var sb strings.Builder
+	mode := d.PermissionMode
+	if mode == "" {
+		mode = "default"
+	}
+	sb.WriteString("Permission mode: " + mode + "\n")
+	if len(d.AllowRules) == 0 {
+		sb.WriteString("Allow rules: (none)\n")
+	} else {
+		sb.WriteString("Allow rules:\n")
+		for _, r := range d.AllowRules {
+			line := "  ✓ " + r.Tool
+			if r.Pattern != "" {
+				line += "(" + r.Pattern + ")"
+			}
+			if r.Source != "" {
+				line += " [" + r.Source + "]"
+			}
+			sb.WriteString(line + "\n")
+		}
+	}
+	if len(d.DenyRules) == 0 {
+		sb.WriteString("Deny rules: (none)\n")
+	} else {
+		sb.WriteString("Deny rules:\n")
+		for _, r := range d.DenyRules {
+			line := "  ✗ " + r.Tool
+			if r.Pattern != "" {
+				line += "(" + r.Pattern + ")"
+			}
+			if r.Source != "" {
+				line += " [" + r.Source + "]"
+			}
+			sb.WriteString(line + "\n")
+		}
+	}
+	if d.Error != "" {
+		sb.WriteString("Error: " + d.Error + "\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // ─── /feedback deep implementation ───────────────────────────────────────────
@@ -241,6 +315,8 @@ type HooksViewData struct {
 	Hooks map[string][]HooksConfigEntry `json:"hooks,omitempty"`
 	// Error if hook loading failed.
 	Error string `json:"error,omitempty"`
+	// FallbackText is plain-text output for non-interactive contexts.
+	FallbackText string `json:"fallback_text,omitempty"`
 }
 
 // HooksConfigEntry describes a configured hook for the hooks TUI view.
@@ -291,10 +367,30 @@ func (c *DeepHooksCommand) ExecuteInteractive(_ context.Context, _ []string, ect
 		}
 	}
 
+	data.FallbackText = buildHooksText(data)
 	return &InteractiveResult{
 		Component: "hooks",
 		Data:      data,
 	}, nil
+}
+
+// buildHooksText formats HooksViewData as plain text.
+func buildHooksText(d *HooksViewData) string {
+	if len(d.Hooks) == 0 {
+		return "No hooks configured. Edit .claude/settings.json to add hooks."
+	}
+	var sb strings.Builder
+	sb.WriteString("Configured hooks:\n")
+	for event, entries := range d.Hooks {
+		for _, e := range entries {
+			line := "  [" + event + "] " + e.Command
+			if e.ToolName != "" {
+				line += " (tool: " + e.ToolName + ")"
+			}
+			sb.WriteString(line + "\n")
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // ─── /stats deep implementation ──────────────────────────────────────────────
@@ -313,6 +409,8 @@ type StatsViewData struct {
 	CacheWrites  int    `json:"cache_writes,omitempty"`
 	CostUSD      string `json:"cost_usd"`
 	Duration     string `json:"duration,omitempty"`
+	// FallbackText is plain-text output for non-interactive contexts.
+	FallbackText string `json:"fallback_text,omitempty"`
 }
 
 // DeepStatsCommand replaces the basic StatsCommand.
@@ -334,10 +432,27 @@ func (c *DeepStatsCommand) ExecuteInteractive(_ context.Context, _ []string, ect
 		data.CostUSD = fmt.Sprintf("$%.4f", ectx.CostUSD)
 	}
 
+	data.FallbackText = buildStatsText(data)
 	return &InteractiveResult{
 		Component: "stats",
 		Data:      data,
 	}, nil
+}
+
+// buildStatsText formats StatsViewData as plain text.
+func buildStatsText(d *StatsViewData) string {
+	var sb strings.Builder
+	sb.WriteString("Session stats:\n")
+	if d.SessionID != "" {
+		sb.WriteString(fmt.Sprintf("  Session:  %s\n", d.SessionID))
+	}
+	if d.Model != "" {
+		sb.WriteString(fmt.Sprintf("  Model:    %s\n", d.Model))
+	}
+	sb.WriteString(fmt.Sprintf("  Turns:    %d\n", d.TurnCount))
+	sb.WriteString(fmt.Sprintf("  Tokens:   %d\n", d.TotalTokens))
+	sb.WriteString(fmt.Sprintf("  Cost:     %s\n", d.CostUSD))
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // ─── /agents deep implementation ─────────────────────────────────────────────
@@ -350,6 +465,8 @@ type AgentsViewData struct {
 	AvailableTools []string `json:"available_tools,omitempty"`
 	// ActiveAgents lists currently active agent instances.
 	ActiveAgents []AgentEntry `json:"active_agents,omitempty"`
+	// FallbackText is plain-text output for non-interactive contexts.
+	FallbackText string `json:"fallback_text,omitempty"`
 }
 
 // AgentEntry describes an active or configured agent.
@@ -384,10 +501,31 @@ func (c *DeepAgentsCommand) ExecuteInteractive(_ context.Context, _ []string, ec
 		}
 	}
 
+	data.FallbackText = buildAgentsText(data)
 	return &InteractiveResult{
 		Component: "agents",
 		Data:      data,
 	}, nil
+}
+
+// buildAgentsText formats AgentsViewData as plain text.
+func buildAgentsText(d *AgentsViewData) string {
+	if len(d.ActiveAgents) == 0 {
+		return "No active agents."
+	}
+	var sb strings.Builder
+	sb.WriteString("Active agents:\n")
+	for _, a := range d.ActiveAgents {
+		sb.WriteString(fmt.Sprintf("  [%s] %s (%s) — %s\n", a.ID[:min8(a.ID)], a.Name, a.Type, a.Status))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func min8(s string) int {
+	if len(s) < 8 {
+		return len(s)
+	}
+	return 8
 }
 
 // ─── /tasks deep implementation ──────────────────────────────────────────────
@@ -398,6 +536,8 @@ func (c *DeepAgentsCommand) ExecuteInteractive(_ context.Context, _ []string, ec
 type TasksViewData struct {
 	// Tasks lists all background tasks.
 	Tasks []TaskViewEntry `json:"tasks,omitempty"`
+	// FallbackText is plain-text output for non-interactive contexts.
+	FallbackText string `json:"fallback_text,omitempty"`
 }
 
 // TaskViewEntry is a display-friendly task entry.
@@ -434,10 +574,24 @@ func (c *DeepTasksCommand) ExecuteInteractive(_ context.Context, _ []string, ect
 		}
 	}
 
+	data.FallbackText = buildTasksText(data)
 	return &InteractiveResult{
 		Component: "tasks",
 		Data:      data,
 	}, nil
+}
+
+// buildTasksText formats TasksViewData as plain text.
+func buildTasksText(d *TasksViewData) string {
+	if len(d.Tasks) == 0 {
+		return "No background tasks."
+	}
+	var sb strings.Builder
+	sb.WriteString("Background tasks:\n")
+	for _, t := range d.Tasks {
+		sb.WriteString(fmt.Sprintf("  [%s] %s — %s\n", t.ID[:min8(t.ID)], t.Title, t.Status))
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // ─── /add-dir deep implementation ────────────────────────────────────────────

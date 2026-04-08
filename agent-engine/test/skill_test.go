@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wall-ai/agent-engine/internal/engine"
 	"github.com/wall-ai/agent-engine/internal/skill"
 )
 
@@ -70,10 +71,13 @@ func TestSkillToolCall(t *testing.T) {
 		Meta:  skill.SkillMeta{Name: "test-skill", Description: "A test skill"},
 		RawMD: "## Step 1\nDo something.",
 	}
-	st := skill.NewSkillTool(s)
+	reg := skill.NewRegistry()
+	reg.Add(s)
+	st := skill.NewSkillTool(reg)
 	ctx := context.Background()
 
-	ch, err := st.Call(ctx, []byte(`{}`), nil)
+	uctx := &engine.UseContext{WorkDir: t.TempDir()}
+	ch, err := st.Call(ctx, []byte(`{"skill":"test-skill"}`), uctx)
 	require.NoError(t, err)
 
 	var out string

@@ -116,6 +116,18 @@ func extractFallbackText(data interface{}) string {
 		return d.FallbackText
 	case *SessionViewData:
 		return d.FallbackText
+	case *PermissionsViewData:
+		return d.FallbackText
+	case *HooksViewData:
+		return d.FallbackText
+	case *StatsViewData:
+		return d.FallbackText
+	case *AgentsViewData:
+		return d.FallbackText
+	case *TasksViewData:
+		return d.FallbackText
+	case *MemoryViewData:
+		return d.FallbackText
 	default:
 		// Use a map-based probe for arbitrary data (e.g. map[string]interface{}).
 		if m, ok := d.(map[string]interface{}); ok {

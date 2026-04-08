@@ -6,6 +6,7 @@ package toolset
 import (
 	"runtime"
 
+	"github.com/wall-ai/agent-engine/internal/skill"
 	"github.com/wall-ai/agent-engine/internal/tool"
 	"github.com/wall-ai/agent-engine/internal/tool/agentool"
 	"github.com/wall-ai/agent-engine/internal/tool/askuser"
@@ -22,7 +23,6 @@ import (
 	"github.com/wall-ai/agent-engine/internal/tool/planmode"
 	"github.com/wall-ai/agent-engine/internal/tool/powershell"
 	"github.com/wall-ai/agent-engine/internal/tool/sendmessage"
-	"github.com/wall-ai/agent-engine/internal/tool/skilltool"
 	"github.com/wall-ai/agent-engine/internal/tool/sleep"
 	"github.com/wall-ai/agent-engine/internal/tool/taskcreate"
 	"github.com/wall-ai/agent-engine/internal/tool/taskget"
@@ -37,10 +37,22 @@ import (
 	"github.com/wall-ai/agent-engine/internal/tool/worktree"
 )
 
+// SkillRegistryOption optionally injects a pre-populated skill registry.
+// When nil, an empty registry is used (skills are added later by the caller).
+type SkillRegistryOption = *skill.Registry
+
 // DefaultTools returns the standard set of tools, using the given sub-agent
 // runner. Pass nil for runner to disable sub-agent spawning (e.g. in child
 // agents to prevent infinite recursion).
-func DefaultTools(runner agentool.SubAgentRunner) []tool.Tool {
+// skillReg may be nil; the SkillTool will be registered with an empty registry
+// and callers can add skills before the first query.
+func DefaultTools(runner agentool.SubAgentRunner, skillRegs ...SkillRegistryOption) []tool.Tool {
+	var reg *skill.Registry
+	if len(skillRegs) > 0 && skillRegs[0] != nil {
+		reg = skillRegs[0]
+	} else {
+		reg = skill.NewRegistry()
+	}
 	tools := []tool.Tool{
 		// Core file + shell tools
 		fileread.New(),
@@ -80,8 +92,8 @@ func DefaultTools(runner agentool.SubAgentRunner) []tool.Tool {
 		worktree.NewEnter(),
 		worktree.NewExit(),
 		worktree.NewList(),
-		// Skills
-		skilltool.New(nil),
+		// Skills (unified SkillTool from internal/skill)
+		skill.NewSkillTool(reg),
 	}
 
 	// Register platform-appropriate shell tool.

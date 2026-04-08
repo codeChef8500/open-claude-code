@@ -11,6 +11,7 @@ import (
 	"github.com/wall-ai/agent-engine/internal/memory"
 	"github.com/wall-ai/agent-engine/internal/mode"
 	"github.com/wall-ai/agent-engine/internal/permission"
+	"github.com/wall-ai/agent-engine/internal/plugin"
 	"github.com/wall-ai/agent-engine/internal/prompt"
 	"github.com/wall-ai/agent-engine/internal/provider"
 	"github.com/wall-ai/agent-engine/internal/session"
@@ -23,7 +24,8 @@ import (
 
 // Engine is the public SDK handle for an agent session.
 type Engine struct {
-	inner *engine.Engine
+	inner   *engine.Engine
+	plugins *plugin.Manager
 }
 
 // Options configures an Engine via functional options.
@@ -81,12 +83,24 @@ func New(opts ...Option) (*Engine, error) {
 
 	// Build AgentTool with a real sub-agent runner.
 	subRunner := buildSubAgentRunner(o.cfg, prov)
-	tools := toolset.DefaultTools(subRunner)
 
-	// Append discovered skills as tools.
+	// Discover skills from all sources.
+	skillReg := skill.NewRegistry()
 	for _, s := range skill.DiscoverAll(o.cfg.WorkDir) {
-		tools = append(tools, skill.NewSkillTool(s))
+		skillReg.Add(s)
 	}
+
+	// Initialize plugin manager and merge plugin-provided skills.
+	plugin.InitBuiltinPlugins()
+	binDirs, mfDirs := plugin.DefaultPluginDirs()
+	plugMgr := plugin.NewManager(binDirs, mfDirs)
+	plugMgr.DiscoverAndLoad()
+	for _, s := range plugMgr.GetAllSkills() {
+		skillReg.Add(s)
+	}
+
+	// DefaultTools now includes the unified SkillTool backed by this registry.
+	tools := toolset.DefaultTools(subRunner, skillReg)
 
 	inner, err := engine.New(o.cfg, prov, tools)
 	if err != nil {
@@ -102,7 +116,7 @@ func New(opts ...Option) (*Engine, error) {
 		inner.SetAutoModeClassifier(mode.NewClassifierAdapter(prov, nil))
 	}
 
-	return &Engine{inner: inner}, nil
+	return &Engine{inner: inner, plugins: plugMgr}, nil
 }
 
 // buildSubAgentRunner returns a SubAgentRunner that spins up a child engine
@@ -173,8 +187,16 @@ func (e *Engine) SubmitMessageWithImages(ctx context.Context, text string, image
 	return e.inner.SubmitMessage(ctx, engine.QueryParams{Text: text, Images: images})
 }
 
+// PluginManager returns the plugin manager.
+func (e *Engine) PluginManager() *plugin.Manager { return e.plugins }
+
 // Close releases engine resources.
-func (e *Engine) Close() error { return e.inner.Close() }
+func (e *Engine) Close() error {
+	if e.plugins != nil {
+		e.plugins.Close()
+	}
+	return e.inner.Close()
+}
 
 // SkillNames returns names of all discovered skills for this engine.
 func (e *Engine) SkillNames() []string {
