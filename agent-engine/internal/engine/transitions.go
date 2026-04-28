@@ -9,16 +9,16 @@ package engine
 type TerminalReason string
 
 const (
-	TerminalCompleted           TerminalReason = "completed"
-	TerminalAbortedStreaming    TerminalReason = "aborted_streaming"
-	TerminalAbortedTools        TerminalReason = "aborted_tools"
-	TerminalBlockingLimit       TerminalReason = "blocking_limit"
-	TerminalModelError          TerminalReason = "model_error"
-	TerminalImageError          TerminalReason = "image_error"
-	TerminalPromptTooLong       TerminalReason = "prompt_too_long"
-	TerminalStopHookPrevented   TerminalReason = "stop_hook_prevented"
-	TerminalHookStopped         TerminalReason = "hook_stopped"
-	TerminalMaxTurns            TerminalReason = "max_turns"
+	TerminalCompleted         TerminalReason = "completed"
+	TerminalAbortedStreaming  TerminalReason = "aborted_streaming"
+	TerminalAbortedTools      TerminalReason = "aborted_tools"
+	TerminalBlockingLimit     TerminalReason = "blocking_limit"
+	TerminalModelError        TerminalReason = "model_error"
+	TerminalImageError        TerminalReason = "image_error"
+	TerminalPromptTooLong     TerminalReason = "prompt_too_long"
+	TerminalStopHookPrevented TerminalReason = "stop_hook_prevented"
+	TerminalHookStopped       TerminalReason = "hook_stopped"
+	TerminalMaxTurns          TerminalReason = "max_turns"
 )
 
 // Terminal is the final result of a queryLoop execution.
@@ -35,13 +35,15 @@ type Terminal struct {
 type ContinueReason string
 
 const (
-	ContinueNextTurn               ContinueReason = "next_turn"
+	ContinueNextTurn                ContinueReason = "next_turn"
 	ContinueMaxOutputTokensRecovery ContinueReason = "max_output_tokens_recovery"
 	ContinueMaxOutputTokensEscalate ContinueReason = "max_output_tokens_escalate"
-	ContinueReactiveCompactRetry   ContinueReason = "reactive_compact_retry"
-	ContinueCollapseDrainRetry     ContinueReason = "collapse_drain_retry"
-	ContinueStopHookBlocking       ContinueReason = "stop_hook_blocking"
+	ContinueReactiveCompactRetry    ContinueReason = "reactive_compact_retry"
+	ContinueCollapseDrainRetry      ContinueReason = "collapse_drain_retry"
+	ContinueStopHookBlocking        ContinueReason = "stop_hook_blocking"
+	ContinueStopHookRetry           ContinueReason = "stop_hook_retry"
 	ContinueTokenBudgetContinuation ContinueReason = "token_budget_continuation"
+	ContinueFallbackRetry           ContinueReason = "fallback_retry"
 )
 
 // ContinueTransition records the reason and metadata for the current iteration's
@@ -62,9 +64,9 @@ type ContinueTransition struct {
 // ────────────────────────────────────────────────────────────────────────────
 
 const (
-	QuerySourceSDK             QuerySource = "sdk"
-	QuerySourceREPLMainThread  QuerySource = "repl_main_thread"
-	QuerySourceREPLSideThread  QuerySource = "repl_side_thread"
+	QuerySourceSDK            QuerySource = "sdk"
+	QuerySourceREPLMainThread QuerySource = "repl_main_thread"
+	QuerySourceREPLSideThread QuerySource = "repl_side_thread"
 )
 
 // IsCompactOrSessionMemory returns true if the source is a background

@@ -12,6 +12,7 @@ import (
 	"github.com/wall-ai/agent-engine/internal/command"
 	"github.com/wall-ai/agent-engine/internal/hooks"
 	"github.com/wall-ai/agent-engine/internal/state"
+	"github.com/wall-ai/agent-engine/internal/util"
 )
 
 // Engine manages a single conversation session with an LLM.
@@ -42,6 +43,9 @@ type Engine struct {
 
 	// Command system — intercepts slash commands before model invocation.
 	commandRegistry *command.Registry
+
+	// Feature flags — gated capabilities. Wired at SDK level.
+	featureFlags *util.FeatureFlagStore
 }
 
 // New creates and initialises an Engine from the given config.
@@ -115,6 +119,12 @@ func (e *Engine) SetHookExecutor(he *hooks.Executor) { e.hookExecutor = he }
 
 // SetCommandRegistry installs the slash command registry for interception.
 func (e *Engine) SetCommandRegistry(r *command.Registry) { e.commandRegistry = r }
+
+// SetFeatureFlags installs the feature flag store for capability gating.
+func (e *Engine) SetFeatureFlags(ff *util.FeatureFlagStore) { e.featureFlags = ff }
+
+// FeatureFlags returns the feature flag store (may be nil).
+func (e *Engine) FeatureFlags() *util.FeatureFlagStore { return e.featureFlags }
 
 // SetAskPermission installs the interactive permission callback.
 // This is called by tools that require user approval (e.g. file writes).

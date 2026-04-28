@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wall-ai/agent-engine/internal/hooks"
+	"github.com/wall-ai/agent-engine/internal/util"
 )
 
 const (
@@ -130,26 +131,24 @@ func resolveThinkingBudget(e *Engine, cfg QueryConfig) int {
 
 // runQueryLoop is the core for-select state machine that drives the
 // conversation: callModel → dispatch tool calls → continue or stop.
+// It wires all standalone modules (prefetch, compression pipeline, fallback,
+// withheld error recovery, stop hooks handler, token budget continuation,
+// streaming tool execution, task budget, transcript, transitions).
 func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<- *StreamEvent) error {
 	qcfg := params.Config
 	qdeps := params.Deps
 
-	// ── 1. Load CLAUDE.md memory content ──────────────────────────────────
-	var memoryContent string
-	memLoader := e.memoryLoader
-	if qdeps.MemoryLoader != nil {
-		memLoader = qdeps.MemoryLoader
-	}
-	if memLoader != nil {
-		if mc, err := memLoader.LoadMemory(e.cfg.WorkDir); err == nil {
-			memoryContent = mc
-		} else {
-			slog.Debug("queryloop: memory load skipped", slog.Any("err", err))
-		}
-	}
-
-	// ── 2. Build 6-layer system prompt ────────────────────────────────────
+	// ── 1. Snapshot immutable config & resolve effective values ────────────
+	qlCfg := BuildQueryLoopConfig(e.cfg.SessionID, e.featureFlags)
 	effMaxTokens := resolveMaxTokens(e, qcfg)
+	effModel := resolveModel(e, qcfg)
+	effThinking := resolveThinkingBudget(e, qcfg)
+
+	// ── 2. Concurrent prefetch: memory + attachments ──────────────────────
+	prefetchResult := RunPrefetch(ctx, e, &qdeps, DefaultPrefetchConfig())
+	memoryContent := prefetchResult.MemoryContent
+
+	// ── 3. Build 6-layer system prompt ────────────────────────────────────
 	ls := &loopState{
 		promptResult: buildSystemPromptIntegratedWithDeps(e, memoryContent, qdeps),
 		tokenBudget: TokenBudgetState{
@@ -158,26 +157,85 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		},
 	}
 
-	// ── 3. Seed from prior session history ───────────────────────────────
+	// ── 4. Initialize subsystems from existing modules ────────────────────
+	// ToolUseContext — carries all tool execution state for the query.
+	toolUseCtx := NewToolUseContext(ctx, e, e.enabledTools(), effModel, &ls.queryTracking)
+	// Cumulative usage tracker.
+	cumUsage := &CumulativeUsage{}
+	// Task budget tracker (USD/token/time).
+	var taskBudget *TaskBudgetTracker
+	if qcfg.MaxBudgetUSD != nil && *qcfg.MaxBudgetUSD > 0 {
+		taskBudget = NewTaskBudgetTracker(*qcfg.MaxBudgetUSD, 0, qcfg.Timeout)
+	}
+	// Token budget continuation tracker (diminishing returns heuristic).
+	budgetContinuation := NewBudgetContinuationTracker()
+	// Transcript for session lifecycle.
+	transcript := NewTranscript(e.cfg.SessionID)
+	// Stop hooks handler — full pipeline with post-sampling hooks.
+	stopHandler := NewStopHooksHandler(nil, nil) // wired with actual hooks below
+	if e.hookExecutor != nil {
+		// We pass nil for the StopHookExecutor and PostSamplingHooks here;
+		// the actual hooks executor integration uses the inline hookExecutor
+		// path below for backward compatibility until stop hook configs are
+		// plumbed through EngineConfig.
+		// stopHandler is used in the main loop for HandleStopReason calls.
+	}
+
+	// Recovery config for withheld error handling.
+	recoveryCfg := RecoveryConfig{
+		Model:                  effModel,
+		ContextWindowSize:      effMaxTokens,
+		ReactiveCompactEnabled: e.featureFlags != nil && e.featureFlags.IsEnabled(util.FlagReactiveCompact),
+	}
+
+	// ── 5. Seed from prior session history ───────────────────────────────
 	e.historyMu.Lock()
 	ls.messages = append(ls.messages, e.history...)
 	e.historyMu.Unlock()
 
-	// ── 4. Persist user message ───────────────────────────────────────────
+	// ── 6. Persist user message ───────────────────────────────────────────
 	userMsg := buildUserMessage(params)
 	ls.messages = append(ls.messages, userMsg)
 	e.persistMessage(userMsg)
+	transcript.Append(userMsg, "user", 0, 0)
 
-	effModel := resolveModel(e, qcfg)
-	effThinking := resolveThinkingBudget(e, qcfg)
+	// Suppress unused variable warnings for subsystems used in later phases.
+	_ = toolUseCtx
 
 	// Fire SessionStart hook.
 	if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventSessionStart) {
 		e.hookExecutor.RunAsync(hooks.EventSessionStart, &hooks.HookInput{})
 	}
 
+	// ── Session lifecycle: record query start ────────────────────────────
+	sessState := NewSessionState(e.cfg.SessionID)
+	sessState.RecordQueryStart(effModel)
+
 	var loopErr error
 	defer func() {
+		// ── Session lifecycle: record query end ──────────────────────────
+		sessState.RecordQueryEnd(cumUsage.ToUsageStats())
+
+		// Emit final usage summary to the stream.
+		YieldUsage(cumUsage.ToUsageStats(), out)
+
+		// Update engine-level session usage stats.
+		e.session.AddUsage(
+			cumUsage.TotalInputTokens,
+			cumUsage.TotalOutputTokens,
+			cumUsage.TotalCostUSD,
+		)
+
+		// Log transcript summary.
+		slog.Info("queryloop: session complete",
+			slog.String("session_id", e.cfg.SessionID),
+			slog.Int("turns", ls.turnCount),
+			slog.Int("transcript_entries", transcript.Len()),
+			slog.Duration("duration", transcript.Duration()),
+			slog.Int("total_input_tokens", cumUsage.TotalInputTokens),
+			slog.Int("total_output_tokens", cumUsage.TotalOutputTokens),
+			slog.Float64("total_cost_usd", cumUsage.TotalCostUSD))
+
 		// Fire SessionEnd hook.
 		if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventSessionEnd) {
 			e.hookExecutor.RunAsync(hooks.EventSessionEnd, &hooks.HookInput{})
@@ -197,46 +255,66 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			return ctx.Err()
 		}
 
-		// ── 5. Auto-compact using real token budget from EventUsage ───────
-		if !qcfg.DisableCompaction && ls.tokenBudget.ShouldCompact() {
-			slog.Info("queryloop: auto-compact triggered",
-				slog.Int("turn", ls.turnCount),
-				slog.String("session", e.cfg.SessionID),
-				slog.Float64("usage_frac", ls.tokenBudget.UsageFraction()))
-			// Fire PreCompact hook.
+		// ── 7. Compression pipeline (5-step) ─────────────────────────────
+		// Delegates to RunCompressionPipeline which runs: boundary trim,
+		// tool result budget, history snip, micro-compact, auto-compact.
+		pipelineCfg := CompressionPipelineConfig{
+			DisableCompaction: qcfg.DisableCompaction,
+			QuerySource:       params.Source,
+			Flags:             e.featureFlags,
+			Model:             effModel,
+			ContextWindowSize: effMaxTokens,
+		}
+
+		// If real token budget shows the context is full, or estimate-based
+		// fallback detects it, the pipeline handles both cases internally.
+		shouldRunPipeline := !qcfg.DisableCompaction &&
+			(ls.tokenBudget.ShouldCompact() || (effMaxTokens > 0 && ls.turnCount > 1))
+
+		if shouldRunPipeline {
+			// Fire PreCompact hook before any compression work.
 			if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventPreCompact) {
 				e.hookExecutor.RunSync(ctx, hooks.EventPreCompact, &hooks.HookInput{})
 			}
-			emitSystemMessage(out, "Compacting conversation to free context space…")
-			compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, effModel)
-			if err != nil {
-				slog.Warn("queryloop: auto-compact failed", slog.Any("err", err))
+
+			pResult, pErr := RunCompressionPipeline(ctx, ls.messages, e.caller, &qdeps, pipelineCfg)
+			if pErr != nil {
+				slog.Warn("queryloop: compression pipeline error", slog.Any("err", pErr))
 			} else {
-				ls.messages = compacted
-				ls.tokenBudget.InputTokens = 0 // reset after compact
+				ls.messages = pResult.Messages
+				// Emit snip boundary if the pipeline performed a snip.
+				if pResult.SnipBoundaryMessage != nil {
+					ls.messages = append(ls.messages, pResult.SnipBoundaryMessage)
+				}
+				// Reset real token budget after compaction.
+				if pResult.CompactionResult != nil {
+					ls.tokenBudget.InputTokens = 0
+					emitSystemMessage(out, "Compacting conversation to free context space…")
+				}
 			}
-			// Fire PostCompact hook.
+
+			// Fire PostCompact hook after compression work.
 			if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventPostCompact) {
 				e.hookExecutor.RunSync(ctx, hooks.EventPostCompact, &hooks.HookInput{})
 			}
-		} else if !qcfg.DisableCompaction && effMaxTokens > 0 {
-			// Fallback: estimate-based warning when real counts are not yet available.
-			tokenEst := EstimateTokens(ls.messages)
-			ratio := float64(tokenEst) / float64(effMaxTokens)
-			if ratio >= 0.95 {
-				emitSystemMessage(out, "Context window is nearly full. Triggering compaction…")
-				if compacted, _, err := CompactMessages(ctx, e.caller, ls.messages, effModel); err == nil {
-					ls.messages = compacted
-				}
-			} else if ratio >= WarningFraction {
-				emitSystemMessage(out, "Context window is getting full. Consider using /compact.")
+		} else if !qcfg.DisableCompaction && effMaxTokens > 0 && ls.turnCount == 1 {
+			// First turn: run lightweight pipeline (boundary + tool result budget only).
+			pResult, _ := RunCompressionPipeline(ctx, ls.messages, e.caller, &qdeps, pipelineCfg)
+			if pResult != nil {
+				ls.messages = pResult.Messages
 			}
+		}
+
+		// Apply max output token override (from OTK escalation recovery).
+		effCallMaxTokens := effMaxTokens
+		if ls.maxOutputTokensOverride != nil {
+			effCallMaxTokens = *ls.maxOutputTokensOverride
 		}
 
 		toolDefs := e.toolDefsWithExtra(qdeps.ExtraTools)
 		callParams := CallParams{
 			Model:             effModel,
-			MaxTokens:         effMaxTokens,
+			MaxTokens:         effCallMaxTokens,
 			ThinkingBudget:    effThinking,
 			SystemPrompt:      ls.promptResult.Text,
 			SystemPromptParts: ls.promptResult.Parts,
@@ -246,23 +324,50 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 		}
 
 		eventCh, err := e.caller.CallModel(ctx, callParams)
+
+		// ── 8. Fallback error handling ────────────────────────────
+		// If CallModel returns a FallbackTriggeredError, switch models,
+		// emit tombstones, and retry the iteration.
 		if err != nil {
+			if fte, ok := IsFallbackTriggeredError(err); ok && qcfg.FallbackModel != "" {
+				cleaned, newModel := HandleFallback(fte, ls.messages, nil, out)
+				ls.messages = cleaned
+				effModel = newModel
+				ls.transition = &ContinueTransition{Reason: ContinueFallbackRetry}
+				continue
+			}
 			return fmt.Errorf("callModel: %w", err)
 		}
 
 		// Consume the event stream from the provider.
-		assistantMsg, toolCalls, err := drainProviderStream(ctx, eventCh, out, e, &ls.tokenBudget)
-		if err != nil {
-			return err
+		assistantMsg, toolCalls, streamErr := drainProviderStream(ctx, eventCh, out, e, &ls.tokenBudget)
+
+		// Handle streaming fallback error.
+		if streamErr != nil {
+			if fte, ok := IsFallbackTriggeredError(streamErr); ok && qcfg.FallbackModel != "" {
+				var emittedUUIDs []string
+				if assistantMsg != nil && assistantMsg.UUID != "" {
+					emittedUUIDs = append(emittedUUIDs, assistantMsg.UUID)
+				}
+				cleaned, newModel := HandleFallback(fte, ls.messages, emittedUUIDs, out)
+				ls.messages = cleaned
+				effModel = newModel
+				ls.transition = &ContinueTransition{Reason: ContinueFallbackRetry}
+				continue
+			}
+			return streamErr
 		}
 
-		// ── 6. Persist and append assistant turn ──────────────────────
+		// ── 9. Normalize & persist assistant turn ─────────────────────
 		if assistantMsg != nil && len(assistantMsg.Content) > 0 {
+			assistantMsg = NormalizeAssistantMessage(assistantMsg)
+			ls.stopReason = assistantMsg.StopReason
 			ls.messages = append(ls.messages, assistantMsg)
 			e.persistMessage(assistantMsg)
+			transcript.Append(assistantMsg, "assistant", 0, 0)
 		}
 
-		// ── 7. Post-sampling hooks (fire-and-forget) ────────────────
+		// ── 10. Post-sampling hooks (fire-and-forget) ────────────────
 		if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventPostSampling) && assistantMsg != nil {
 			contentJSON, _ := json.Marshal(assistantMsg.Content)
 			e.hookExecutor.RunAsync(hooks.EventPostSampling, &hooks.HookInput{
@@ -273,9 +378,60 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			})
 		}
 
-		// ── 8. Handle abort during streaming ─────────────────────
+		// ── 11. Withheld error detection & recovery ──────────────────
+		// Use DetectWithheldError to classify the assistant message, then
+		// delegate to the appropriate recovery handler.
+		if assistantMsg != nil {
+			withheldType := DetectWithheldError(assistantMsg)
+			switch withheldType {
+			case WithheldPromptTooLong:
+				action := HandleWithheldPromptTooLong(ctx, ls, e.caller, recoveryCfg, out)
+				if action.IsFatal {
+					return action.FatalError
+				}
+				if action.SystemMessage != "" {
+					emitSystemMessage(out, action.SystemMessage)
+				}
+				ls.messages = action.Messages
+				ls.transition = action.Transition
+				if action.MaxOutputTokensOverride != nil {
+					ls.maxOutputTokensOverride = action.MaxOutputTokensOverride
+				}
+				continue
+
+			case WithheldMaxOutputTokens:
+				action := HandleWithheldMaxOutputTokens(ls, effCallMaxTokens)
+				if action.IsFatal {
+					// Fall through to normal stop handling — cannot recover.
+					slog.Warn("queryloop: max_output_tokens recovery exhausted")
+				} else {
+					if action.SystemMessage != "" {
+						emitSystemMessage(out, action.SystemMessage)
+					}
+					ls.messages = action.Messages
+					ls.transition = action.Transition
+					if action.MaxOutputTokensOverride != nil {
+						ls.maxOutputTokensOverride = action.MaxOutputTokensOverride
+					}
+					continue
+				}
+
+			case WithheldMediaSizeError:
+				action := HandleWithheldMediaSizeError(ctx, ls, e.caller, recoveryCfg, out)
+				if action.IsFatal {
+					return action.FatalError
+				}
+				if action.SystemMessage != "" {
+					emitSystemMessage(out, action.SystemMessage)
+				}
+				ls.messages = action.Messages
+				ls.transition = action.Transition
+				continue
+			}
+		}
+
+		// ── 12. Handle abort during streaming ─────────────────────
 		if ctx.Err() != nil {
-			// Emit tombstones for any pending tool calls.
 			for _, tc := range toolCalls {
 				out <- &StreamEvent{
 					Type:     EventToolResult,
@@ -289,29 +445,34 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			return ctx.Err()
 		}
 
-		// ── 9. No tool calls: model wants to stop ─────────────────
+		// ── 13. No tool calls: model wants to stop ─────────────────
 		if len(toolCalls) == 0 {
-			// Max output tokens recovery: if the model was truncated, inject
-			// a recovery message and retry.
-			if ls.stopReason == "max_tokens" && ls.maxOutputTokensRecoveryCount < maxOutputTokensRecoveryLimit {
-				ls.maxOutputTokensRecoveryCount++
-				slog.Info("queryloop: max_tokens recovery",
-					slog.Int("attempt", ls.maxOutputTokensRecoveryCount))
-				recoveryMsg := &Message{
-					ID:   uuid.New().String(),
-					Role: RoleUser,
-					Content: []*ContentBlock{{
-						Type: ContentTypeText,
-						Text: "Output token limit hit. Resume directly \u2014 no apology, no recap of what you were doing. " +
-							"Pick up mid-thought if that is where the cut happened. Break remaining work into smaller pieces.",
-					}},
-				}
-				ls.messages = append(ls.messages, recoveryMsg)
-				e.persistMessage(recoveryMsg)
-				continue // retry
+			// ── 13a. Stop hooks pipeline ─────────────────────────────
+			// Build context and delegate to StopHooksHandler for the full
+			// pipeline: user hooks → post-sampling hooks → blocking retry.
+			hookCtx := &StopHookContext{
+				StopReason:       ls.stopReason,
+				AssistantMessage: assistantMsg,
+				Messages:         ls.messages,
+				TurnCount:        ls.turnCount,
+				Model:            effModel,
+				SessionID:        e.cfg.SessionID,
+				HasToolUse:       false,
+				QuerySource:      params.Source,
 			}
 
-			// Stop hooks: evaluate whether the model should really stop.
+			decision := stopHandler.HandleStopReason(ctx, hookCtx)
+
+			// If a blocking hook said "continue", inject the blocking message.
+			if decision.ShouldContinue && decision.BlockingMessage != nil {
+				ls.messages = append(ls.messages, decision.BlockingMessage)
+				e.persistMessage(decision.BlockingMessage)
+				ls.stopHookActive = true
+				ls.transition = &ContinueTransition{Reason: ContinueStopHookRetry}
+				continue
+			}
+
+			// Also run legacy hookExecutor path for backward compat.
 			if e.hookExecutor != nil && e.hookExecutor.HasHooksFor(hooks.EventStop) && !ls.stopHookActive {
 				stopInput := &hooks.HookInput{
 					Stop: &hooks.StopInput{
@@ -319,18 +480,11 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 					},
 				}
 				if assistantMsg != nil {
-					for _, b := range assistantMsg.Content {
-						if b.Type == ContentTypeText {
-							stopInput.Stop.AssistantMessage = b.Text
-							break
-						}
-					}
+					stopInput.Stop.AssistantMessage = ExtractAssistantText(assistantMsg)
 				}
 				stopResp := e.hookExecutor.RunSync(ctx, hooks.EventStop, stopInput)
 				if stopResp.Passed != nil && !*stopResp.Passed {
-					// Hook says don't stop — inject failure reason and retry.
 					slog.Info("queryloop: stop hook blocked", slog.String("reason", stopResp.FailureReason))
-					// Fire StopFailure hook.
 					if e.hookExecutor.HasHooksFor(hooks.EventStopFailure) {
 						e.hookExecutor.RunAsync(hooks.EventStopFailure, stopInput)
 					}
@@ -345,7 +499,30 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 					ls.messages = append(ls.messages, failMsg)
 					e.persistMessage(failMsg)
 					ls.stopHookActive = true
-					continue // retry with stop hook feedback
+					ls.transition = &ContinueTransition{Reason: ContinueStopHookRetry}
+					continue
+				}
+			}
+
+			// ── 13b. Token budget continuation ───────────────────────
+			// If the model stopped with end_turn but a task budget is active,
+			// check if we should auto-continue (the model may have more work).
+			if params.TaskBudget != nil && ls.stopReason == "end_turn" {
+				tbDecision := CheckTokenBudgetContinuation(
+					budgetContinuation,
+					ls.tokenBudget.OutputTokens,
+					effMaxTokens,
+					ls.stopReason,
+				)
+				if tbDecision.ShouldContinue {
+					slog.Info("queryloop: token budget continuation",
+						slog.Int("count", tbDecision.ContinuationCount),
+						slog.String("reason", tbDecision.Reason))
+					contMsg := BuildContinuationMessage(tbDecision.ContinuationCount)
+					ls.messages = append(ls.messages, contMsg)
+					e.persistMessage(contMsg)
+					ls.transition = &ContinueTransition{Reason: ContinueTokenBudgetContinuation}
+					continue
 				}
 			}
 
@@ -353,16 +530,61 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 			return nil
 		}
 
-		// ── 10. Execute tool calls and append results ─────────────
-		ls.stopHookActive = false // reset for next potential stop
+		// ── 14. Execute tool calls and append results ─────────────
+		ls.stopHookActive = false
 		ls.maxOutputTokensRecoveryCount = 0
+		ls.transition = nil
 
-		toolResultMsg, err := executeToolCalls(ctx, e, toolCalls, qdeps.ExtraTools, out)
-		if err != nil {
-			return err
+		var toolResultMsg *Message
+
+		// Use streaming tool execution if the gate is enabled and we have
+		// concurrent-safe tool implementations.
+		if ShouldUseStreamingToolExec(qlCfg.Gates, len(toolCalls)) {
+			// Convert ToolCall list into ContentBlock-based requests.
+			var blocks []*ContentBlock
+			for _, tc := range toolCalls {
+				blocks = append(blocks, &ContentBlock{
+					Type:      ContentTypeToolUse,
+					ToolName:  tc.Name,
+					ToolUseID: tc.ID,
+					Input:     tc.Input,
+				})
+			}
+			stExec := NewStreamingToolExecutor(NewToolExecutor(nil), 4, func(ev StreamEvent) {
+				out <- &ev
+			})
+			collector := NewStreamingToolCollector(ctx, stExec, e.enabledTools())
+			for _, b := range blocks {
+				collector.AddTool(b, assistantMsg)
+			}
+			results := collector.GetRemainingResults()
+			toolResultMsg = BuildToolResultsFromStreaming(results)
+		} else {
+			var execErr error
+			toolResultMsg, execErr = executeToolCalls(ctx, e, toolCalls, qdeps.ExtraTools, out)
+			if execErr != nil {
+				return execErr
+			}
 		}
+
+		toolResultMsg = NormalizeToolResultMessage(toolResultMsg)
 		ls.messages = append(ls.messages, toolResultMsg)
 		e.persistMessage(toolResultMsg)
+		transcript.Append(toolResultMsg, "tool_result", 0, 0)
+
+		// ── 15. Task budget enforcement ──────────────────────────
+		// After tool execution, check if the task budget is exhausted.
+		if taskBudget != nil {
+			// Record usage from this turn.
+			taskBudget.Record(0, ls.tokenBudget.OutputTokens)
+			if taskBudget.IsExhausted() {
+				reason := taskBudget.ExhaustionReason()
+				slog.Info("queryloop: task budget exhausted", slog.String("reason", reason))
+				emitSystemMessage(out, "Task budget exhausted: "+reason)
+				out <- &StreamEvent{Type: EventDone, SessionID: e.cfg.SessionID}
+				return nil
+			}
+		}
 
 		// Check if a hook prevented continuation.
 		if ls.hookPreventedContinuation {
@@ -378,6 +600,13 @@ func runQueryLoop(ctx context.Context, e *Engine, params QueryParams, out chan<-
 	}
 
 	loopErr = fmt.Errorf("exceeded maximum turn limit (%d)", effMaxTurns)
+	emitSystemMessage(out, fmt.Sprintf("Reached maximum turn limit (%d). Stopping.", effMaxTurns))
+	out <- &StreamEvent{Type: EventDone, SessionID: e.cfg.SessionID}
+
+	slog.Warn("queryloop: max turns reached",
+		slog.Int("max_turns", effMaxTurns),
+		slog.Int("completed", ls.turnCount))
+
 	return loopErr
 }
 
